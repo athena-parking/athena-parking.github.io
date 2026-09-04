@@ -1,0 +1,1321 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#080f1e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Parking directions</title>
+<style>
+  /* Two palettes, chosen by where the visitor actually is.
+     Light reads better in sunlight at the gate; dark stops a white screen
+     glaring and wrecking night vision down in the basements. */
+  :root{
+    --bg:#f2f4f8; --surface:#ffffff; --surface-2:#eef1f6; --line:#dce2ec;
+    --text:#101827; --muted:#586780; --accent:#1f5fd0; --accent-ink:#ffffff;
+    --accent-soft:#e7effd; --warn:#8a5200; --err:#b3261e;
+    --hdr:#ffffff; --scrim:rgba(16,24,39,.45);
+    --shadow:0 1px 2px rgba(16,24,39,.06),0 4px 14px rgba(16,24,39,.07);
+    --hdrh:52px;
+  }
+  :root[data-theme="dark"]{
+    --bg:#05070f; --surface:#0c1424; --surface-2:#15203a; --line:#24314f;
+    --text:#f3f6fc; --muted:#9aaacb; --accent:#5b9bff; --accent-ink:#04101f;
+    --accent-soft:#10203c; --warn:#f0b866; --err:#ff8f8a;
+    --hdr:#080f1e; --scrim:rgba(0,0,0,.68);
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 4px 14px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* html must carry the background too: Chrome on Android paints the
+     system gesture-bar area from the canvas colour, and a bare html
+     element leaves a white strip under a dark page. */
+  html{background:var(--bg)}
+  html,body{height:100%;margin:0;overscroll-behavior:none}
+  body{
+    background:var(--bg);color:var(--text);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;height:100dvh;
+  }
+
+  /* ---------- fixed header ---------- */
+  header{
+    flex:0 0 auto;background:var(--hdr);color:var(--text);border-bottom:1px solid var(--line);
+    padding:8px 14px;padding-top:calc(8px + env(safe-area-inset-top));
+    display:flex;align-items:center;gap:10px;min-height:var(--hdrh);
+  }
+  .loc[hidden]{display:none}
+  .loc{display:flex;align-items:center;gap:7px;min-width:0;flex:1;
+    border:0;background:transparent;color:inherit;font:inherit;text-align:left;
+    padding:0;cursor:pointer}
+  .loc .edit{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--accent);
+    border:1px solid var(--line);border-radius:7px;padding:3px 7px}
+  /* A scanned start is a fact; a chosen one is the visitor's best guess. Say so. */
+  .loc.guessed .dot{background:var(--muted);box-shadow:none}
+  .loc.guessed .k::after{content:" \2014 set by you";letter-spacing:0;text-transform:none}
+  .loc .dot{flex:0 0 8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 3px rgba(91,155,255,.22)}
+  .loc .txt{min-width:0}
+  .loc .k{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+    font-weight:700;line-height:1.2}
+  .loc .v{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* With the location control hidden on the landing page the gear was the only
+     thing in the header and slid to the left. Pin it to the right either way. */
+  .gear{flex:0 0 auto;margin-left:auto;width:34px;height:34px;border:1px solid var(--line);border-radius:9px;
+    cursor:pointer;background:var(--surface-2);color:var(--text);font-size:15px}
+
+  /* ---------- view container ---------- */
+  main{flex:1 1 auto;min-height:0;position:relative}
+  .view{position:absolute;inset:0;display:none;flex-direction:column;min-height:0}
+  .view.on{display:flex}
+  .scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;min-height:0}
+
+  /* ---------- picker ---------- */
+  .pk-head{padding:16px 16px 10px;flex:0 0 auto}
+  .pk-head h2{margin:0 0 2px;font-size:21px;font-weight:800;letter-spacing:-.015em}
+  .pk-head p{margin:0;font-size:13.5px;color:var(--muted)}
+  .pk-search{padding:0 16px 10px;flex:0 0 auto}
+  input[type=search]{
+    width:100%;padding:13px 14px;font:inherit;font-size:16px;color:var(--text);
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;min-height:50px;
+  }
+  input[type=search]:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .grp[hidden]{display:none}
+  .grp{padding:12px 16px 2px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--muted);font-weight:800}
+  .list{padding:0 12px 16px}
+  .item{
+    display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    color:var(--text);font:inherit;padding:11px 13px;margin:6px 0;min-height:56px;cursor:pointer;
+    box-shadow:var(--shadow);
+  }
+  .item:active{background:var(--surface-2)}
+  .item .ic{flex:0 0 38px;height:38px;border-radius:10px;background:var(--accent-soft);
+    color:var(--accent);display:grid;place-items:center;font-size:18px}
+  /* These are spans, so they are inline by default and the title ran into
+     the subtitle on one line ("Visitor ParkingGround"). Force block. */
+  .item .tx{min-width:0;flex:1;display:block}
+  .item .t1{display:block;font-size:15.5px;font-weight:650;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .t2{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+  .item .go{color:var(--muted);font-size:18px}
+  .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:14px}
+  .vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  nav.tabs[hidden]{display:none}
+  .offbar{flex:0 0 auto;background:var(--warn);color:#1a1200;font-size:13px;font-weight:700;
+    text-align:center;padding:7px 12px;line-height:1.35}
+  .offbar[hidden]{display:none}
+  .backbar{flex:0 0 auto;padding:10px 16px 0}
+  .backbar button{border:1px solid var(--line);background:var(--surface);color:var(--text);
+    font:inherit;font-size:13.5px;font-weight:700;border-radius:9px;padding:9px 13px;
+    min-height:42px;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 16px}
+  .gbtn{background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--text);
+    font:inherit;cursor:pointer;min-height:58px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:1px;padding:6px 4px;box-shadow:var(--shadow)}
+  .gbtn:active{background:var(--surface-2)}
+  /* Which block you are looking at, so the grid reads as tabs rather than as
+     six buttons that all look untouched. */
+  .gbtn.on{background:var(--accent);border-color:var(--accent)}
+  .gbtn.on .bl,.gbtn.on .bs{color:var(--accent-ink)}
+  .gbtn .bl{font-size:19px;font-weight:800;color:var(--accent);line-height:1.1}
+  .gbtn .bs{font-size:10.5px;color:var(--muted);font-weight:650}
+
+  /* ---------- route ---------- */
+  .rhead{flex:0 0 auto;background:var(--accent-soft);border-bottom:1px solid var(--line);
+    padding:11px 14px;display:flex;align-items:center;gap:10px}
+  .rhead .tx{flex:1;min-width:0}
+  .rhead .d{font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rhead .s{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .rhead button{border:1px solid var(--line);background:var(--surface);color:var(--text);
+    font:inherit;font-size:12.5px;font-weight:700;border-radius:9px;padding:8px 11px;cursor:pointer;
+    min-height:40px;white-space:nowrap}
+  ol.steps{list-style:none;margin:0;padding:5px 11px 16px}
+  ol.steps li{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
+    border:1px solid var(--line);border-radius:11px;padding:9px 11px;margin:5px 0;
+    box-shadow:var(--shadow)}
+  ol.steps li.now{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  ol.steps li.arrive{background:var(--accent-soft);border-color:var(--accent)}
+  .g{flex:0 0 31px;height:31px;border-radius:9px;background:var(--surface-2);
+    display:grid;place-items:center;font-size:16px;font-weight:700}
+  li.arrive .g{background:var(--accent);color:var(--accent-ink)}
+  .tx2{flex:1;min-width:0}
+  .t{font-size:14.5px;line-height:1.32}
+  li.arrive .t{font-weight:750}
+  .m{font-size:12px;color:var(--muted);margin-top:2px}
+  /* A turn that reads badly in words is the one place a picture earns its
+     keep. Bigger than a thumbnail or it is not worth looking at. */
+  img.thumb.shot{flex:0 0 88px;width:88px;height:66px;object-fit:cover;border-radius:9px;
+    border:1px solid var(--line);background:var(--surface-2)}
+  img.thumb.shot.missing{display:none}
+  .thumb{flex:0 0 38px;height:38px;border-radius:8px;border:1px dashed var(--line);
+    background:var(--surface-2);color:var(--muted);display:grid;place-items:center;font-size:15px}
+
+  /* One instruction at a time. A list is for reading at a desk; at the
+     wheel you want the next thing to do, as large as the screen allows. */
+  .slide{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding:0 16px 12px;touch-action:pan-y}
+  .prog{flex:0 0 auto;display:flex;gap:5px;align-items:center;padding:12px 2px 10px}
+  .prog .pdot{flex:1 1 0;height:4px;border-radius:3px;background:var(--line)}
+  .prog .pdot.on{background:var(--accent)}
+  .prog .pnum{flex:0 0 auto;font-size:11.5px;font-weight:700;color:var(--muted);
+    margin-left:8px;letter-spacing:.04em}
+  .stepwrap{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+    justify-content:center;gap:16px;text-align:center;padding:4px 0;transition:transform .17s ease,opacity .17s ease}
+  .stepwrap.from-r{transform:translateX(22px);opacity:.25}
+  .stepwrap.from-l{transform:translateX(-22px);opacity:.25}
+  .stepwrap .sg{font-size:54px;line-height:1}
+  .stepwrap .st{font-size:26px;line-height:1.3;font-weight:750;letter-spacing:-.01em}
+  .stepwrap .sm{font-size:14px;color:var(--muted)}
+  .stepwrap img.shot{width:100%;max-width:420px;align-self:center;border-radius:14px;
+    border:1px solid var(--line)}
+  .stepwrap.arrive .st{color:var(--accent)}
+  .slidenav{flex:0 0 auto;display:flex;gap:10px;padding-top:12px}
+  .slidenav button{flex:1;min-height:56px;border:1px solid var(--line);border-radius:14px;
+    background:var(--surface);color:var(--text);font:inherit;font-size:16px;font-weight:750;
+    cursor:pointer;box-shadow:var(--shadow)}
+  .slidenav button.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .slidenav button:disabled{opacity:.4;box-shadow:none}
+
+  /* A scan answers "where am I" and nothing else. Landing straight on both
+     fields makes it obvious that either can be changed - and that the start is
+     only a starting point. */
+  #planpane{padding:18px 16px 0}
+  .plan-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    color:var(--text);font:inherit;padding:14px 15px;margin:0 0 10px;min-height:70px;
+    cursor:pointer;box-shadow:var(--shadow)}
+  .plan-row:active{background:var(--surface-2)}
+  .plan-row .k{flex:0 0 96px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--muted);font-weight:800}
+  .plan-row .v{flex:1;min-width:0;font-size:16px;font-weight:700;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .plan-row.unset .v{color:var(--muted);font-weight:600}
+  .plan-row .go{color:var(--muted);font-size:20px}
+  .plan-row.parked{border-color:var(--accent);background:var(--accent-soft)}
+  .plan-row.parked .k{color:var(--accent)}
+  .plan-row[hidden]{display:none}
+  .parkbtn{border:1px solid var(--line);background:var(--surface);color:var(--text);
+    font:inherit;font-size:12.5px;font-weight:700;border-radius:9px;padding:8px 11px;
+    cursor:pointer;min-height:40px;white-space:nowrap}
+  .parkbtn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .parkbtn.wide{align-self:center;min-height:52px;padding:0 22px;font-size:15px;margin-top:4px}
+  .plan-hint{margin:4px 2px 0;font-size:13px;color:var(--muted)}
+  /* A segmented control, not two buttons: the pair reads as one question with
+     one answer already given, which is what it is. */
+  .modesw{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:14px;padding:5px;margin:0 0 12px}
+  .modesw button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;
+    font-size:15px;font-weight:700;border-radius:10px;padding:11px 6px;cursor:pointer;
+    min-height:46px}
+  .modesw button[aria-pressed="true"]{background:var(--surface);color:var(--text);
+    box-shadow:var(--shadow)}
+  .modesw[hidden]{display:none}
+  #planpane[hidden],#choosepane[hidden]{display:none}
+  #choosepane{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+  .fromto{display:flex;align-items:stretch;gap:8px;padding:12px 16px 0}
+  .fromto .ft{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:2px;
+    border:1px solid var(--line);background:var(--surface-2);
+    border-radius:11px;padding:8px 10px}
+  .fromto .k{font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted);font-weight:700}
+  .fromto .v{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .fromto .arr{align-self:center;color:var(--muted);font-weight:700;flex:0 0 auto}
+
+  /* On a tablet the app was stretching a phone layout across 1300px: a step
+     of text marooned in the middle, and Back/Next a hand-span apart. Cap the
+     reading column and centre it. The map is exempt - it wants every pixel. */
+  @media (min-width: 720px){
+    .pk-head, .pk-search, .grp, .list, .backbar, #planpane, #towers-wrap,
+    .rhead, .slide, .notice, .modesw{
+      max-width:660px; margin-left:auto; margin-right:auto; width:100%;
+    }
+    .stepwrap .st{font-size:30px}
+    .slidenav{max-width:660px}
+  }
+
+  /* ---------- notice + dev sheet ---------- */
+  .notice{margin:12px;padding:12px 14px;border-radius:12px;font-size:13.5px;
+    background:var(--surface);border:1px solid var(--warn);color:var(--warn);font-weight:650}
+  .sheet{position:fixed;inset:0;background:var(--scrim);display:none;z-index:20;align-items:flex-end}
+  .sheet.on{display:flex}
+  .sheet-in{background:var(--bg);width:100%;max-height:82%;overflow-y:auto;
+    border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+  .sheet-in h3{margin:0 0 10px;font-size:16px}
+  .sheet-in label{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);font-weight:800;margin:12px 0 6px}
+  select{width:100%;padding:12px;font:inherit;font-size:15px;color:var(--text);background:var(--surface);
+    border:1px solid var(--line);border-radius:10px;min-height:48px}
+  .vl{margin:10px 0 0;padding:0 0 0 18px;font-size:13px}
+  .vl li{margin:4px 0}
+  .sev-err{color:var(--err);font-weight:650}.sev-warn{color:var(--warn)}.sev-info{color:var(--muted)}
+  .sheet-in a{color:var(--accent)}
+  .close{width:100%;margin-top:14px;border:0;border-radius:11px;background:var(--accent);
+    color:var(--accent-ink);font:inherit;font-weight:800;padding:13px;min-height:48px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 class="vh" id="apptitle">Parking and wayfinding</h1>
+  <button class="loc" id="startbtn" type="button" aria-label="Change where you are starting from">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="txt">
+      <span class="k" id="loc-k">You are at</span>
+      <div class="v" id="youare">Locating…</div>
+    </span>
+    <span class="edit" id="edit-lbl" aria-hidden="true">Change</span>
+  </button>
+  <button class="gear" id="gear" aria-label="Test tools">⚙</button>
+</header>
+
+<div class="offbar" id="offbar" hidden="">
+  Offline — showing the map saved on this phone
+</div>
+
+<main>
+  <!-- ============ 1. DESTINATION PICKER (landing) ============ -->
+  <section class="view" id="v-pick">
+    <div class="backbar" id="backbar" hidden="">
+      <button id="back-route">‹ Keep where I am</button>
+    </div>
+    <div id="planpane">
+      <!-- Asked first because it changes the answers to the other two: on foot
+           the lift lobbies open up, and in a car they are not places you can
+           go. Driving is the default - it is what a car park is for. -->
+      <div class="modesw" id="modesw" role="group" aria-label="How are you travelling?">
+        <button type="button" id="m-car"  aria-pressed="true"><span aria-hidden="true">🚗</span> Driving</button>
+        <button type="button" id="m-foot" aria-pressed="false"><span aria-hidden="true">🚶</span> Walking</button>
+      </div>
+      <button type="button" class="plan-row" id="pr-from">
+        <span class="k">Starting from</span>
+        <span class="v" id="ft-from-v">Tap to choose</span>
+        <span class="go" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="plan-row" id="pr-to">
+        <span class="k">Going to</span>
+        <span class="v" id="ft-to-v">Tap to choose</span>
+        <span class="go" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="plan-row parked" id="pr-car" hidden>
+        <span class="k">Back to</span>
+        <span class="v" id="ft-car-v">my car</span>
+        <span class="go" aria-hidden="true">›</span>
+      </button>
+      <p class="plan-hint" id="plan-hint">Fill both and the directions open on their own.</p>
+    </div>
+    <div id="choosepane">
+    <div class="pk-head">
+      <h2 id="pk-title">Where are you starting from?</h2>
+      <p id="pk-sub">Pick the place you are at now. Scanning a placard is more reliable.</p>
+    </div>
+    <div class="pk-search">
+      <input id="q" type="search" inputmode="search" autocomplete="off" enterkeyhint="go" placeholder="Search a place">
+    </div>
+    <div class="scroll">
+      <div id="notice-slot"></div>
+      <!-- The block grid sits ABOVE the list: once a block is open its slots
+           run to ninety rows, and a grid underneath them is a grid nobody can
+           reach without scrolling past the block they are trying to leave. -->
+      <div id="towers-wrap">
+        <div class="grp" id="towers-label">Allotted slots</div>
+        <div class="grid" id="towergrid"></div>
+      </div>
+      <div class="list" id="picklist"></div>
+    </div>
+    </div>
+  </section>
+
+  <!-- ============ 2. DIRECTIONS ============ -->
+  <section class="view" id="v-route">
+    <div class="rhead">
+      <div class="tx">
+        <div class="d" id="r-dest">—</div>
+        <div class="s" id="r-stats"></div>
+      </div>
+      <button class="parkbtn" id="r-share">Share</button>
+    </div>
+    <div class="slide" id="slide">
+      <div class="prog" id="prog"></div>
+      <div class="stepwrap" id="steps"></div>
+      <div class="slidenav">
+        <button id="s-prev">‹ Back</button>
+        <button id="s-next" class="go">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- test harness, kept out of the visitor's way -->
+<div class="sheet" id="sheet">
+  <div class="sheet-in">
+    <h3>Test tools</h3>
+    <label for="anchor">Simulate scanning a placard</label>
+    <select id="anchor"></select>
+    <label for="theme">Appearance</label>
+    <select id="theme">
+      <option value="auto">Auto — light outdoors, dark in basements</option>
+      <option value="light">Always light</option>
+      <option value="dark">Always dark</option>
+    </select>
+    <p style="font-size:12.5px;color:var(--muted);margin:8px 0 0">
+      In the field this comes from the URL — <code>?s=G1</code> — so the app knows where you are
+      without GPS, and which travel mode to default to.
+      <a href="qr.html">Open the placard sheet →</a>
+    </p>
+    <label>Publish-time validation</label>
+    <ul class="vl" id="val"></ul>
+    <label>Saved copy</label>
+    <button id="clear-cache" style="width:100%">Clear saved copy and reload</button>
+    <button class="close" id="sheet-close">Close</button>
+  </div>
+</div>
+
+<script src="map.js"></script>
+<script src="engine.js"></script>
+<script src="scanpoints.js"></script>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { at:"gate-a", mode:"car", dest:null, scan:null, view:"pick",
+                themePref:"auto",
+                // "dest" = choosing where to go, "start" = choosing where you are.
+                pickMode:"dest",
+                // null on the two-row landing page; "start"/"dest" while a
+                // chooser is open. The landing page asks two questions and
+                // shows nothing else until both have answers.
+                picking:null,
+                // A node picked automatically so the app has somewhere to draw
+                // from is NOT the visitor saying where they are. Only a scan or
+                // a tap counts, and the journey waits until one of them happens.
+                startChosen:false,
+                // which instruction the slideshow is showing
+                stepIx:0,
+                // true while the full allotment list is open
+                browse:false,
+                chain:false,
+                // A QR scan is evidence. Anything else is the visitor's guess,
+                // and every "turn right" downstream depends on which it was.
+                guessedStart:false, atLabel:null };
+  try { state.themePref = localStorage.getItem("ap_theme") || "auto"; } catch (e) {}
+
+  /* A slot id is a key for the map file. What a visitor recognises is the flat
+     whose bay it is, so say that wherever the name is shown. */
+  /* What to call the current destination, in the words a person would use. */
+  /* You park in a bay or in the visitor area. You do not park at a lift lobby
+     or at the gate, so offering to remember one as your car's spot is an offer
+     to record something false. */
+  function canPark(){
+    var d = state.dest ? resolveDest(state.dest) : null;
+    if (!d) return false;
+    if (d.kind === "slot") return true;
+    return d.kind === "node" && isVisitorNode(d.node);
+  }
+
+  function destLabel(){
+    var d = state.dest ? resolveDest(state.dest) : null;
+    if (!d) return state.dest || "";
+    if (d.kind === "slot") return slotName(d.slot);
+    if (d.kind === "unlocated") return "Flat " + d.flat.id;
+    return d.flat ? d.flat.id + " (" + nodeLabel(d.node) + ")" : nodeLabel(d.node);
+  }
+
+  function slotName(sl){
+    var n = ENG.slotNumber(sl.id);
+    return sl.flat ? sl.flat + "'s parking" : "Visitor bay " + n;
+  }
+
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){
+    return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]; }); }
+
+  var ENG = createEngine(MAP);
+  var G = ENG.G, route = ENG.route, validate = ENG.validate,
+      normFlat = ENG.normFlat, flatIdFromKey = ENG.flatIdFromKey,
+      resolveDest = ENG.resolveDest;
+
+  /* "gate-a" above is the demo map's name. A real map need not have it, and a
+     map still being authored may have no anchor at all - neither may take the
+     whole app down on load. */
+  (function seedPosition(){
+    var anchor = MAP.nodes.filter(function(n){ return n.anchor; })[0];
+    var start  = anchor || MAP.nodes[0];
+    state.at   = start ? start.id : null;
+  })();
+
+  /* The community name lives in the map, so renaming the community is a
+     publish, not a code edit. The markup ships a neutral placeholder. */
+  (function nameApp(){
+    var c = (MAP.community || "").trim();
+    if (!c || c.toLowerCase() === "new map") c = "Parking";
+    document.title = c + " — Parking directions";
+    $("apptitle").textContent = c + " parking and wayfinding";
+  })();
+
+  /* ================= entry: resolve the placard ================= */
+  var params = new URLSearchParams(location.search);
+
+  function applyScan(sp){
+    state.scan = sp; state.at = sp.node;
+    state.startChosen = true; state.guessedStart = false;
+    state.atLabel = null;           // the placard now says where you are
+    if (sp.audience === "car" || sp.audience === "foot") state.mode = sp.audience;
+  }
+
+  if (!MAP.edges.some(function(e){ return e.mode.indexOf("car") >= 0; })) state.mode = "foot";
+
+  /* Whatever the placard said is home. "Start over" returns here rather than to
+     a blank app - the visitor is still standing where they scanned, so throwing
+     that away would just make them tell us again. */
+  var HOME = null;
+  /* Finding the way in is half the problem. The other half happens two hours
+     later, on foot, in a basement where every aisle looks identical - and no
+     placard can help because the visitor no longer knows which one they passed.
+     One tap on arrival is enough to answer it, and the row stays hidden until
+     there is something to answer. */
+  var PARKED_KEY = "ap_parked";
+  function loadParked(){
+    try { return JSON.parse(localStorage.getItem(PARKED_KEY) || "null"); }
+    catch (e) { return null; }
+  }
+  function saveParked(v){
+    try { v ? localStorage.setItem(PARKED_KEY, JSON.stringify(v))
+            : localStorage.removeItem(PARKED_KEY); } catch (e) {}
+  }
+  function parkedLabel(){
+    var p = loadParked();
+    return p && p.label ? p.label : null;
+  }
+  function renderParkedRow(){
+    var p = loadParked();
+    $("pr-car").hidden = !p;
+    if (p) $("ft-car-v").textContent = p.label;
+  }
+  $("pr-car").onclick = function(){
+    var p = loadParked();
+    if (!p) return;
+    state.dest = p.dest;
+    state.picking = null;
+    if (state.startChosen && state.at) { location.hash = "#/r/" + encodeURIComponent(p.dest); return; }
+    renderPick();
+    say2("Now say where you are, and I will walk you back.");
+  };
+  function say2(t){ $("plan-hint").textContent = t; }
+
+  function markHome(){
+    HOME = { at: state.at, mode: state.mode, scan: state.scan,
+             chosen: state.startChosen };
+  }
+  function startOver(){
+    if (HOME) {
+      state.at = HOME.at;
+      state.mode = HOME.mode; state.scan = HOME.scan;
+    }
+    state.dest = null; state.picking = null; state.pickMode = "dest";
+    state.startChosen = !!(HOME && HOME.scan);
+    state.browse = false; state.guessedStart = false; state.chain = false;
+    state.atLabel = HOME ? null : state.atLabel;
+    lastRoute = null;
+    header();
+    if (location.hash === "#/" || location.hash === "") { show("pick"); renderPick(); }
+    else location.hash = "#/";
+  }
+
+  if (params.get("s")) {
+    var sp0 = SCANPOINTS.byId(params.get("s"));
+    if (sp0) applyScan(sp0);
+    else {
+      // Never silently guess: a wrong start point is worse than no app at all.
+      var n = document.createElement("div");
+      n.className = "notice";
+      n.textContent = "Placard “" + params.get("s") + "” is not recognised. It may have been " +
+        "replaced. Choose your location under ⚙ below, and please tell the guard the code on the placard.";
+      $("notice-slot").appendChild(n);
+    }
+  } else if (params.get("at") && G.nodes[params.get("at")]) {
+    state.at = params.get("at");
+    state.scan = SCANPOINTS.byNode(params.get("at"));
+  }
+
+  /* ================= routing between views ================= */
+  function router(){
+    var h = location.hash.replace(/^#\/?/, "");
+    if (h.indexOf("r/") === 0) {
+      state.dest = decodeURIComponent(h.slice(2));
+      show("route");
+    } else {
+      show("pick");
+    }
+  }
+  function show(v){
+    state.view = v;
+    // The header says different things on the landing page and on a journey,
+    // so it has to be rebuilt whenever the view changes - not just on load.
+    header();
+    ["pick","route"].forEach(function(k){ $("v-"+k).classList.toggle("on", k === v); });
+    $("backbar").hidden = !(v === "pick" && state.dest);
+    if (v !== "pick") $("startbtn").hidden = false;
+    renderParkedRow();
+    if (v === "route") renderRoute();
+    if (v === "pick")  renderPick();
+    applyTheme();
+  }
+  function goDest(id){
+    state.dest = id;
+    state.picking = null;
+    if (state.startChosen && state.at) { location.hash = "#/r/" + encodeURIComponent(id); return; }
+    // No start yet - go back to the two rows so the other question gets asked.
+    show("pick"); renderPick();
+  }
+
+  $("back-route").onclick = function(){
+    var wasStart = state.pickMode === "start";
+    state.pickMode = "dest"; state.chain = false;
+    if (wasStart) { show(state.dest ? "route" : "pick"); return; }
+    if (state.dest) location.hash = "#/r/" + encodeURIComponent(state.dest);
+  };
+  /* Travel mode is a planning decision, not a mid-journey toggle: it decides
+     which places are even on the two lists, so changing it can invalidate an
+     answer already given. It is asked on the landing page, before either
+     other question. */
+  function setMode(m){
+    if (state.mode === m) return;
+    state.mode = m;
+    // A lift lobby is the one place the two modes disagree about, so it is the
+    // only answer a switch can invalidate. The gate, visitor parking and every
+    // numbered bay are reachable both ways and survive untouched.
+    var dropped = null;
+    if (m === "car") {
+      if (state.dest && isLiftNode(G.nodes[state.dest] || {})) {
+        // Silently emptying a row the visitor just filled reads as a bug. Say
+        // which answer went and why, in the hint line that is already there.
+        dropped = nodeLabel(G.nodes[state.dest]);
+        state.dest = null;
+      }
+      // A scanned start is evidence and is never thrown away, not even a lift
+      // placard's: the visitor really is standing there.
+      if (state.startChosen && !state.scan && isLiftNode(G.nodes[state.at] || {})) {
+        state.startChosen = false; state.atLabel = null;
+      }
+    }
+    state.browse = false;
+    lastRoute = null;
+    header(); renderPick();
+    if (dropped) say2(dropped + " is somewhere you walk to, so it has been cleared.");
+  }
+  $("m-car").onclick  = function(){ setMode("car"); };
+  $("m-foot").onclick = function(){ setMode("foot"); };
+  function renderModeSw(){
+    // One mode on the map means there is no question to ask.
+    $("modesw").hidden = !(HAS_CAR && HAS_FOOT);
+    $("m-car").setAttribute("aria-pressed",  state.mode === "car");
+    $("m-foot").setAttribute("aria-pressed", state.mode === "foot");
+  }
+
+  /* ================= 1. picker ================= */
+  /* Both questions this app asks - where are you, and where are you going -
+     have one answer set, and it is the same set on both sides: the main gate,
+     the visitor area, and a numbered bay. On foot the lift lobbies join them -
+     you cannot drive to a lift, but walking to one is the whole reason a
+     resident crosses a basement. The clubhouse and a "browse every sector" row
+     used to be here too, which made the lists long enough to scroll past the
+     one row that mattered. */
+  // One definition, shared with the engine - the arrival line and the list row
+  // must never disagree about what a bay is called.
+  var slotNum = ENG.slotNumber;
+  function slotLevel(s){
+    var e = G.edges[s.edge], n = e && G.nodes[e.from];
+    return n ? n.level : null;
+  }
+  function slotBlock(s){
+    var m = /^([A-Za-z]+)/.exec(s.flat || "");
+    return m ? m[1].toUpperCase() : "";
+  }
+  /* A map can say so outright; the ones drawn before these fields existed only
+     say it in the name. */
+  function isVisitorNode(n){ return n.visitor === true || /visitor/i.test(n.name || ""); }
+  function isGateNode(n){ return n.gate === true || /\bgate\b/i.test(n.name || ""); }
+  // What a lift lobby is called, and whether a node is one, are the engine's
+  // to decide - the directions have to end with the same words the list row
+  // began with.
+  var isLiftNode = ENG.isLift, nodeLabel = ENG.nodeLabel;
+
+  /* "A-1503" sorts after "A-204" as text and before it in the building.
+     Block, then floor, then unit - and ground units ahead of floor one. */
+  function pad3(n){ return ("00" + n).slice(-3); }
+  function flatOrder(f){
+    var m = /^([A-Za-z]+)-?G([0-9]+)$/.exec(f || "");
+    if (m) return m[1].toUpperCase() + " 000 " + pad3(m[2]);
+    m = /^([A-Za-z]+)-?([0-9]{1,2})([0-9]{2})$/.exec(f || "");
+    if (m) return m[1].toUpperCase() + " " + pad3(m[2]) + " " + pad3(m[3]);
+    return String(f || "").toUpperCase();
+  }
+
+  var ALL_SLOTS = Object.keys(G.slots).map(function(id){ return G.slots[id]; });
+  /* Six hundred bays is not a list anyone reads. Grouped by block it is six
+     buttons, and inside one block it is the length of one tower's roster. */
+  var SLOT_BLOCKS = (function(){
+    var by = {};
+    ALL_SLOTS.forEach(function(s){
+      if (!s.flat) return;
+      (by[slotBlock(s)] = by[slotBlock(s)] || []).push(s);
+    });
+    Object.keys(by).forEach(function(b){
+      by[b].sort(function(x, y){
+        var a = flatOrder(x.flat), c = flatOrder(y.flat);
+        return a < c ? -1 : a > c ? 1 : 0;
+      });
+    });
+    return by;
+  })();
+  var BLOCK_KEYS  = Object.keys(SLOT_BLOCKS).sort();
+  var BLOCK_NAME  = {};
+  (MAP.blocks || []).forEach(function(b){ BLOCK_NAME[String(b.id).toUpperCase()] = b.name; });
+
+  /* The flat leads and the bay number is the detail underneath. A resident
+     knows "D-1204" the way they know their own name and has never once been
+     told which numbered bay came with it; a visitor is sent to a flat's
+     parking, not to bay 359. The number still shows, because it is what is
+     painted on the wall when you get there. */
+  function slotRow(s){
+    return s.flat
+      ? { id: s.id, icon: "🚗", t1: s.flat,
+          t2: "Slot " + slotNum(s.id) + " · " + levelName(slotLevel(s)) }
+      : { id: s.id, icon: "🅿️", t1: "Visitor bay " + slotNum(s.id),
+          t2: levelName(slotLevel(s)) };
+  }
+  /* Visitor parking is the one destination nobody has a number for, so it is
+     the one that has to be spelled out rather than searched for.
+     The AREA, not the bays inside it: a guest is told "park in visitor
+     parking", never "park in visitor bay 549", and listing all fifty-three
+     put a wall of identical rows in front of the only row that meant
+     anything. The bays stay reachable by number through search, for when the
+     guard names one. */
+  function visitorRows(){
+    var rows = [];
+    MAP.nodes.forEach(function(n){
+      if (!isVisitorNode(n)) return;
+      rows.push({ id: n.id, node: n.id, icon: "🅿️", t1: n.name,
+                  t2: levelName(n.level) });
+    });
+    // No visitor area drawn yet - then the loose bays are all there is to offer.
+    if (!rows.length) ALL_SLOTS.forEach(function(s){ if (!s.flat) rows.push(slotRow(s)); });
+    return rows;
+  }
+
+  /* The way in, and on the way out the way out. One row, both modes. */
+  function gateRows(){
+    var rows = [];
+    MAP.nodes.forEach(function(n){
+      if (!isGateNode(n)) return;
+      rows.push({ id: n.id, node: n.id, icon: "🚦", t1: n.name,
+                  t2: levelName(n.level) });
+    });
+    return rows;
+  }
+
+  /* Walking only. Every block has a lift lobby on each basement, and they are
+     different places - so which ones to show depends on which question is
+     being asked.
+
+     Choosing where to GO, from a start we already know: only the lobbies on
+     that level. Picking "Block D lift" and being sent up a ramp to the other
+     basement is a wrong answer the subtitle would not have saved you from,
+     because nobody reads a subtitle on the row they were already looking for.
+
+     Choosing where you ARE: all of them, level and all. You are standing in
+     one of the two basements and you know which - that is the question. */
+  function liftRows(forStart){
+    var rows = [];
+    MAP.nodes.forEach(function(n){
+      if (!isLiftNode(n)) return;
+      rows.push({ id: n.id, node: n.id, icon: "🛗", t1: nodeLabel(n),
+                  t2: levelName(n.level), level: n.level });
+    });
+    rows.sort(function(a, b){ return a.t1 < b.t1 ? -1 : a.t1 > b.t1 ? 1 : 0; });
+    if (forStart) return rows;
+    var here = state.startChosen && G.nodes[state.at] ? G.nodes[state.at].level : null;
+    var mine = rows.filter(function(r){ return r.level === here; });
+    // Starting above ground there is no "this level" to narrow to, so offer
+    // the lot rather than nothing.
+    return mine.length ? mine : rows;
+  }
+
+  /* People know one of two things: the number painted on the bay, or the flat
+     it belongs to. Match either, and never mind the dash.
+
+     Which one they typed is decided by whether there is a letter in it. That
+     matters: "D-12" used to be read as the number 12 and answered with slots
+     12 and 120 through 126, filling the list before a single D flat got in.
+     A letter means a flat, and only a flat. */
+  var MAX_HITS = 30;
+  function searchRows(raw, forStart){
+    var v = normFlat(raw), digits = raw.replace(/\D/g, "");
+    var isFlat = /[a-z]/i.test(raw), loose = raw.trim().toLowerCase();
+    var rows = [], seen = {};
+    function add(r){ if (!seen[r.id] && rows.length < MAX_HITS) { seen[r.id] = 1; rows.push(r); } }
+
+    // Flats first, always - that is what people type. "D-1204" and "d1204"
+    // both land here.
+    if (v)
+      ALL_SLOTS.forEach(function(s){
+        if (s.flat && normFlat(s.flat).indexOf(v) === 0) add(slotRow(s));
+      });
+    // Bare digits are ambiguous: "1204" is a flat number in every block, and
+    // "359" is a bay. Offer the flats first and the bay after, rather than
+    // guessing which they meant.
+    if (!isFlat && digits) {
+      ALL_SLOTS.forEach(function(s){
+        if (s.flat && normFlat(s.flat).slice(1).indexOf(digits) === 0) add(slotRow(s));
+      });
+      ALL_SLOTS.forEach(function(s){ if (slotNum(s.id) === digits) add(slotRow(s)); });
+      ALL_SLOTS.forEach(function(s){ if (slotNum(s.id).indexOf(digits) === 0) add(slotRow(s)); });
+    }
+    // Named places match on their names. A lift is only findable this way in
+    // walking mode, for the same reason it is only listed there.
+    var named = visitorRows().concat(gateRows());
+    if (state.mode === "foot") named = named.concat(liftRows(forStart));
+    named.forEach(function(r){
+      if (!loose || r.t1.toLowerCase().indexOf(loose) >= 0) add(r);
+    });
+    return rows;
+  }
+
+  /* One block's bays. Held back behind a tap so the default screen stays
+     short enough to take in at a glance. */
+  function blockRows(b){ return (SLOT_BLOCKS[b] || []).map(slotRow); }
+
+  /* The block grid, rebuilt whenever the browse state changes. Blocks come
+     from the slots that exist, not from the roster, so a block nobody has
+     surveyed yet never offers an empty list. */
+  function renderBlockGrid(){
+    var wrap = $("towers-wrap"), g = $("towergrid");
+    if (!BLOCK_KEYS.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    $("towers-label").textContent = "Allotted parking — pick a block";
+    g.innerHTML = "";
+    BLOCK_KEYS.forEach(function(b){
+      var n = SLOT_BLOCKS[b].length;
+      var btn = document.createElement("button");
+      btn.className = "gbtn" + (state.browse === b ? " on" : "");
+      btn.innerHTML = '<span class="bl" aria-hidden="true">' + esc(b) + '</span>' +
+                      '<span class="bs" aria-hidden="true">' + n + ' flats</span>';
+      btn.setAttribute("aria-label", (BLOCK_NAME[b] || "Block " + b) + ", " + n + " flats with parking");
+      btn.onclick = function(){
+        state.browse = state.browse === b ? null : b;
+        renderPick();
+      };
+      g.appendChild(btn);
+    });
+  }
+
+  function renderPick(){
+    var startMode = state.pickMode === "start";
+    $("pk-title").textContent = startMode ? "Where are you starting from?" : "Where are you going?";
+    renderFromTo();
+    // Landing page: the two rows, nothing else.
+    // On the two-row page the header would say the same thing twice, so the
+    // location control steps aside and the rows are the whole interface.
+    $("startbtn").hidden   = state.picking === null;
+    $("planpane").hidden   = state.picking !== null;
+    $("choosepane").hidden = state.picking === null;
+    // No back bar while choosing: the header control sits right above it and
+    // does the same job, and two ways out of one screen is one too many.
+    $("backbar").hidden = state.picking !== null || !state.dest;
+    $("back-route").textContent = "‹ Back to directions";
+    header();
+    if (state.picking === null) return;
+
+    var raw = $("q").value.trim();
+    var searching = raw.length >= 1;
+    var list = $("picklist"), rows = [];
+    list.innerHTML = "";
+
+    var walking = state.mode === "foot";
+    $("pk-sub").textContent = startMode
+      ? (walking ? "Pick the flat's parking or the lift lobby you are at."
+                 : "Pick the flat's parking or the gate you are at.")
+      : (walking ? "Type a flat number, or pick a lift lobby."
+                 : "Type a flat number, or pick from the list.");
+    $("q").placeholder = "Flat number, e.g. D-1204";
+
+    // Sections are rows too ({head}), so a list with one group and a list with
+    // two are the same code. The old renderer took a group array and a flat
+    // array by two different paths, and the start list ended up with placards
+    // sitting under a heading that said "Visitor parking".
+    function section(label, rs){
+      if (rs.length) rows.push({ head: label });
+      rows = rows.concat(rs);
+    }
+    if (searching) {
+      $("towers-wrap").hidden = true;
+      section("Matches", searchRows(raw, startMode));
+    } else if (state.browse) {
+      // Inside a block the grid stays up, so the way back out is the same
+      // button that got you in.
+      renderBlockGrid();
+      var bays = blockRows(state.browse);
+      section((BLOCK_NAME[state.browse] || "Block " + state.browse) +
+              " — " + bays.length + " flats", bays);
+    } else {
+      renderBlockGrid();
+      section("Visitor parking and the gate", visitorRows().concat(gateRows()));
+      // The one thing walking unlocks. Below the bays, because a resident on
+      // foot is usually walking away from a bay rather than towards a lift.
+      if (state.mode === "foot") section("Lift lobbies", liftRows(startMode));
+    }
+
+    if (!rows.length) {
+      // An empty list with no query is not a failed search - it means the map
+      // has no bays on it yet. Saying 'nothing matches' reads as broken.
+      if (searching || !BLOCK_KEYS.length)
+        list.innerHTML = '<div class="empty">' + (searching
+          ? 'Nothing matches “' + esc(raw) + '”.<br>' +
+            'Try a flat like <b>D-1204</b>, or a bay number like <b>359</b>.'
+          : 'No parking on this map yet.<br>Bays are added when the map is published.'
+        ) + '</div>';
+      return;
+    }
+
+    rows.forEach(function(r){
+      if (r.head) {
+        var h = document.createElement("div");
+        h.className = "grp"; h.textContent = r.head;
+        list.appendChild(h);
+        return;
+      }
+      var b = document.createElement("button");
+      b.className = "item";
+      b.innerHTML = '<span class="ic" aria-hidden="true">' + (r.icon || "") + '</span>' +
+                    '<span class="tx"><span class="t1">' + esc(r.t1) + '</span>' +
+                    '<span class="t2">' + esc(r.t2) + '</span></span>' +
+                    '<span class="go" aria-hidden="true">›</span>';
+      b.setAttribute("aria-label", r.t1 + ". " + r.t2);
+      b.onclick = function(){ if (startMode) setStart(r); else goDest(r.id); };
+      list.appendChild(b);
+    });
+  }
+
+  /* A row is either a node - the gate, the visitor area, a lift lobby - or a
+     bay sitting part-way along an edge; a bay starts you at the near end of
+     its aisle. */
+  function setStart(r){
+    var nodeId = r.node, label = r.t1;
+    if (!nodeId) {
+      var d = resolveDest(r.id);
+      if (!d || !d.node) return;
+      nodeId = d.node.id;
+    }
+    if (!G.nodes[nodeId]) return;
+    state.at = nodeId;
+    state.atLabel = label;
+    state.startChosen = true;
+    state.scan = null;              // no longer where the placard said
+    state.guessedStart = true;
+    state.pickMode = "dest";
+    state.picking = null;
+    state.browse = null;
+    header();
+    if (maybeGo()) return;
+    show("pick"); renderPick();
+  }
+
+  $("q").oninput = renderPick;
+  $("q").onkeydown = function(e){
+    if (e.key === "Enter") { var f = $("picklist").querySelector(".item"); if (f) f.click(); }
+  };
+
+  /* ================= 2. directions ================= */
+  var lastRoute = null;
+
+  var PIN        = String.fromCodePoint(0x1F4CD);
+  var HAS_CAR    = MAP.edges.some(function(e){ return e.mode.indexOf("car") >= 0; });
+  var HAS_FOOT   = MAP.edges.some(function(e){ return e.mode.indexOf("foot") >= 0; });
+  var lastKey = null;
+
+  /* Draws the one step the visitor is on, plus how far through they are. */
+  function renderStep(){
+    var r = lastRoute;
+    if (!r || !r.steps) return;
+    var i = state.stepIx, s = r.steps[i], n = r.steps.length;
+
+    var dots = "";
+    for (var k = 0; k < n; k++)
+      dots += '<span class="pdot' + (k <= i ? " on" : "") + '"></span>';
+    $("prog").innerHTML = dots + '<span class="pnum">' + (i + 1) + " / " + n + "</span>";
+
+    var w = $("steps");
+    w.className = "stepwrap" + (s.final ? " arrive" : "");
+    w.innerHTML =
+      '<div class="sg" aria-hidden="true">' + s.glyph + "</div>" +
+      '<div class="st">' + esc(s.text) + "</div>" +
+      (s.len || s.final || s.kind === "level"
+        ? '<div class="sm">' + (s.len ? Math.round(s.len) + " m \u00b7 " : "") +
+          esc(levelName(s.level)) + "</div>"
+        : "") +
+      (s.photo ? '<img class="shot" src="photos/' + s.photo + '.jpg" alt="" ' +
+                 'onerror="this.remove()">' : "") +
+      // "I parked here" means nothing on step one. It belongs at the end,
+      // where the visitor is actually standing next to the bay.
+      (s.final && canPark() ? '<button class="parkbtn wide" id="s-park"></button>' : "");
+    if (s.final && canPark()) {
+      var pk = loadParked(), on = pk && pk.dest === state.dest;
+      var pb = $("s-park");
+      pb.classList.toggle("on", !!on);
+      pb.textContent = on ? "\u2713 Saved - your car is here" : "Remember where I parked";
+      pb.onclick = function(){
+        var cur = loadParked();
+        if (cur && cur.dest === state.dest) saveParked(null);
+        else saveParked({ dest: state.dest, label: destLabel() });
+        renderStep(); renderParkedRow();
+      };
+    }
+
+    $("s-prev").disabled = i === 0;
+    $("s-next").disabled = i >= n - 1;
+    $("s-next").textContent = i >= n - 1 ? "Arrived" : "Next \u203a";
+  }
+  function stepBy(d){
+    if (!lastRoute) return;
+    state.stepIx = Math.max(0, Math.min(state.stepIx + d, lastRoute.steps.length - 1));
+    renderStep();
+    var w = $("steps");
+    w.classList.add(d > 0 ? "from-r" : "from-l");
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ w.classList.remove("from-r", "from-l"); });
+    });
+  }
+  /* The visitor is the person who needs this app and the one least able to
+     find it: they do not know it exists, and they do not know the flat number.
+     The resident knows both. So the natural way in is a resident sending a
+     link - which is also what makes using a private bay consented rather than
+     assumed, because somebody had to send it. */
+  function shareUrl(){
+    var path = location.pathname.replace(/[^/]*$/, "index.html");
+    // Share the FLAT, never the slot id. A link sent over WhatsApp outlives
+    // several re-authorings of the map, and "s-359" is an internal key that
+    // moves every time bays are renumbered - "D-1204" does not.
+    var target = state.dest;
+    var d = state.dest ? resolveDest(state.dest) : null;
+    if (d && d.kind === "slot" && d.slot.flat) target = d.slot.flat;
+    return location.origin + path + "?to=" + encodeURIComponent(target);
+  }
+  function flash(msg){
+    var b = $("r-share"), was = b.textContent;
+    b.textContent = msg;
+    setTimeout(function(){ b.textContent = was; }, 1800);
+  }
+  $("r-share").onclick = async function(){
+    if (!state.dest) return;
+    var url = shareUrl();
+    var where = destLabel();
+    var text = "Directions to " + where +
+               (MAP.community ? " at " + MAP.community : "") +
+               ". Open this when you arrive - it works underground.";
+    if (navigator.share) {
+      try { await navigator.share({ title: "Parking directions", text: text, url: url }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; }   // they changed their mind
+    }
+    try { await navigator.clipboard.writeText(url); flash("Link copied"); }
+    catch (e) { window.prompt("Copy this link and send it to your visitor:", url); }
+  };
+
+  $("s-prev").onclick = function(){ stepBy(-1); };
+  $("s-next").onclick = function(){ stepBy(1); };
+
+  /* Swiping is what a hand does with a stack of cards, and it beats aiming at a
+     button while holding a steering wheel. The buttons stay for anyone who
+     would rather tap - and for anyone whose swipe the browser eats. */
+  (function(){
+    var el = $("slide");
+
+    /* Chrome cancels the POINTER stream a dozen pixels into a horizontal drag,
+       because a scroll container might still want the gesture - but it keeps
+       delivering TOUCH events for the same finger. Sharing one "gesture is
+       live" flag between the two therefore threw the swipe away at the moment
+       it started. They track separately, and whichever survives wins. */
+    function tracker(){
+      var sx = 0, sy = 0, live = false, fired = false;
+      return {
+        down: function(x, y){ sx = x; sy = y; live = true; fired = false; },
+        move: function(x, y){
+          if (!live || fired) return;
+          var dx = x - sx, dy = y - sy;
+          if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+          fired = true;
+          stepBy(dx < 0 ? 1 : -1);
+        },
+        end: function(){ live = false; }
+      };
+    }
+    var byPointer = tracker(), byTouch = tracker();
+
+    el.addEventListener("pointerdown", function(e){
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      byPointer.down(e.clientX, e.clientY);
+    });
+    el.addEventListener("pointermove", function(e){ byPointer.move(e.clientX, e.clientY); });
+    el.addEventListener("pointerup", byPointer.end);
+    el.addEventListener("pointercancel", byPointer.end);
+
+    el.addEventListener("touchstart", function(e){
+      var t = e.changedTouches[0]; byTouch.down(t.clientX, t.clientY);
+    }, { passive: true });
+    el.addEventListener("touchmove", function(e){
+      var t = e.changedTouches[0]; byTouch.move(t.clientX, t.clientY);
+    }, { passive: true });
+    el.addEventListener("touchend", byTouch.end);
+    el.addEventListener("touchcancel", byTouch.end);
+  })();
+
+  function renderRoute(){
+    var r = route(state.at, state.dest, state.mode);
+
+    if (r.error) {
+      lastRoute = null;
+      $("r-dest").textContent = "No route";
+      $("r-stats").textContent = "";
+      $("prog").innerHTML = "";
+      $("steps").className = "stepwrap";
+      $("steps").innerHTML = '<div class="empty">' + r.error +
+        '<br><br>Tap Start over and try the other travel mode.</div>';
+      $("s-prev").disabled = $("s-next").disabled = true;
+      $("r-share").hidden = true;
+      return;
+    }
+    lastRoute = r;
+    $("r-share").hidden = false;
+
+    var metres = r.steps.reduce(function(a,s){ return a + s.len; }, 0);
+    $("r-dest").textContent = destLabel();
+    $("r-stats").textContent = Math.round(metres) + " m · " +
+      Math.max(1, Math.round(metres / (state.mode === "car" ? 150 : 75))) + " min · " +
+      (state.mode === "car" ? "driving" : "walking");
+
+    // Step 0 whenever the route itself changes, so a new journey always
+    // starts at the beginning rather than wherever the last one stopped.
+    var key = state.at + ">" + state.dest + ">" + state.mode;
+    if (key !== lastKey) { lastKey = key; state.stepIx = 0; }
+    state.stepIx = Math.max(0, Math.min(state.stepIx, r.steps.length - 1));
+    renderStep();
+
+    // jump the map to the level the route ends on
+  }
+
+  /* ================= dev sheet ================= */
+  var sel = $("anchor");
+  SCANPOINTS.all.forEach(function(s2){
+    var o = document.createElement("option");
+    o.value = s2.id; o.textContent = s2.id + " — " + s2.label;
+    sel.appendChild(o);
+  });
+  sel.onchange = function(){
+    applyScan(SCANPOINTS.byId(sel.value));
+    header(); show(state.view);
+  };
+  $("theme").value = state.themePref;
+  $("theme").onchange = function(){
+    state.themePref = $("theme").value;
+    try { localStorage.setItem("ap_theme", state.themePref); } catch (e) {}
+    applyTheme();
+  };
+
+  $("clear-cache").onclick = function(){
+    var done = function(){ location.reload(); };
+    if (!("serviceWorker" in navigator)) return done();
+    navigator.serviceWorker.getRegistrations()
+      .then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); })
+      .then(function(){ return caches.keys(); })
+      .then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); })
+      .then(done, done);
+  };
+
+  $("gear").onclick = function(){ $("sheet").classList.add("on"); };
+
+  /* A placard fixes where you are, but only for the person holding the phone at
+     it. Residents forward the link, people scan at the gate and then drive in,
+     and the app gets reopened from history. Let the start be changed - and mark
+     it as a guess when it is, because a confident wrong origin is worse than none. */
+  function renderFromTo(){
+    var here = state.startChosen
+      ? (state.scan ? state.scan.label
+                    : state.atLabel || (G.nodes[state.at] || {}).name)
+      : null;
+    $("ft-from-v").textContent = here || "Tap to choose";
+    $("pr-from").classList.toggle("unset", !here);
+    var d = state.dest ? resolveDest(state.dest) : null;
+    var to = d ? (d.kind === "slot" ? slotName(d.slot)
+                                    : d.kind === "unlocated" ? "Flat " + d.flat.id
+                                    : (nodeLabel(d.node) || state.dest)) : null;
+    $("ft-to-v").textContent = to || "Tap to choose";
+    $("pr-to").classList.toggle("unset", !to);
+    $("plan-hint").textContent = (here && to)
+      ? "Opening your directions\u2026"
+      : "Fill both and the directions open on their own.";
+  }
+
+  /* One control, asked in the order a journey happens: where you are, then
+     where you are going. Two separate buttons made the visitor decide which
+     one they wanted before they could answer either. */
+  function openChooser(which){
+    state.browse = false;
+    state.picking = which;
+    // Android back is the first thing people reach for. Give it something to
+    // pop so it closes the chooser instead of leaving the page.
+    try { history.pushState({ picking: which }, ""); } catch (e) {}
+    state.pickMode = which;
+    if (state.view !== "pick") show("pick"); else renderPick();
+    // No autofocus: the keyboard used to spring up and cover the very list the
+    // visitor came to read. Typing is the fallback, browsing is the default.
+    $("q").value = ""; renderPick();
+  }
+  $("pr-from").onclick = function(){ openChooser("start"); };
+  $("pr-to").onclick   = function(){ openChooser("dest"); };
+
+  /* The header control drops you back on the two rows rather than starting a
+     wizard - from there either answer can be changed in one tap. */
+  $("startbtn").onclick = function(){
+    if ((state.view === "route" || state.view === "map") && state.dest) return startOver();
+    state.picking = null; state.pickMode = "dest"; state.chain = false;
+    if (state.view !== "pick") show("pick"); else renderPick();
+  };
+
+  /* Both answers in hand, so stop asking questions and show the way. */
+  function maybeGo(){
+    if (state.startChosen && state.at && state.dest && state.picking === null) {
+      location.hash = "#/r/" + encodeURIComponent(state.dest);
+      return true;
+    }
+    return false;
+  }
+  $("sheet-close").onclick = function(){ $("sheet").classList.remove("on"); };
+  $("sheet").onclick = function(e){ if (e.target === $("sheet")) $("sheet").classList.remove("on"); };
+
+  // Scan points live outside the map file, so the graph validator cannot see
+  // them. Check them here, or a placard can point at a node that no longer exists.
+  var spIssues = [];
+  SCANPOINTS.all.forEach(function(sp){
+    if (!G.nodes[sp.node])
+      spIssues.push({ sev:"err", msg:"Placard " + sp.id + " points at unknown node '" + sp.node + "'" });
+    else if (G.nodes[sp.node].level !== sp.level)
+      spIssues.push({ sev:"warn", msg:"Placard " + sp.id + " says level " + sp.level +
+                      " but node " + sp.node + " is on " + G.nodes[sp.node].level });
+  });
+
+  spIssues.concat(validate()).forEach(function(i){
+    var li = document.createElement("li");
+    li.className = "sev-" + i.sev;
+    li.textContent = (i.sev === "err" ? "✕ " : i.sev === "warn" ? "! " : "· ") + i.msg;
+    $("val").appendChild(li);
+  });
+
+  /* ================= shared ================= */
+  /* Theme follows where the visitor IS, not what they are browsing:
+     the level the route ends on, else the level of the placard they scanned.
+     Browsing map levels deliberately does NOT flip it - that would strobe. */
+  function autoTheme(){
+    var lvl;
+    if (lastRoute && lastRoute.steps.length) lvl = lastRoute.steps[lastRoute.steps.length - 1].level;
+    else if (state.scan) lvl = state.scan.level;
+    else if (G.nodes[state.at]) lvl = G.nodes[state.at].level;
+    // Do not hardcode a level id from one particular map. A level declares
+    // whether it is underground; fall back to the old heuristic if it does not.
+    var L = (MAP.levels || []).filter(function(x){ return x.id === lvl; })[0];
+    if (L && typeof L.underground === "boolean") return L.underground ? "dark" : "light";
+    return lvl && lvl !== "L0" && /^b/i.test(lvl) ? "dark" : "light";
+  }
+
+  function applyTheme(){
+    var t = state.themePref === "auto" ? autoTheme() : state.themePref;
+    document.documentElement.setAttribute("data-theme", t);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute("content", t === "dark" ? "#080f1e" : "#ffffff");
+    var sel = $("theme");
+    if (sel && sel.value !== state.themePref) sel.value = state.themePref;
+  }
+
+  function levelName(id){
+    var l = MAP.levels.filter(function(x){ return x.id === id; })[0];
+    return l ? l.name : id;
+  }
+  function header(){
+    // Every view, not just the picker: a shared link naming a lift lobby lands
+    // straight on the directions in walking mode, and a switch still reading
+    // "Driving" there is the app contradicting itself.
+    renderModeSw();
+    // A node id ("n-1") is a database key, not a place. When the map has not
+    // named this spot, say what the visitor should DO instead of showing it.
+    var here = state.scan ? state.scan.label
+                          : state.atLabel || (G.nodes[state.at] || {}).name;
+    var moving = (state.view === "route" || state.view === "map") && state.dest;
+    if (moving) {
+      var d = resolveDest(state.dest);
+      var to = d ? (d.kind === "slot" ? slotName(d.slot)
+                  : d.kind === "unlocated" ? "Flat " + d.flat.id
+                  : (nodeLabel(d.node) || state.dest)) : state.dest;
+      $("loc-k").textContent = "Your journey";
+      $("youare").textContent = (here || "Start") + "  →  " + to;
+      $("edit-lbl").textContent = "Start over";
+    } else if (state.picking) {
+      $("loc-k").textContent = state.picking === "start" ? "Choosing your start"
+                                                         : "Choosing where to go";
+      $("youare").textContent = here || "Nothing chosen yet";
+      $("edit-lbl").textContent = "Cancel";
+    } else {
+      $("loc-k").textContent = "You are at";
+      $("youare").textContent = here || "Scan a placard to set this";
+      $("edit-lbl").textContent = "Change";
+    }
+    // Scanned is evidence, chosen is a guess - show which, quietly. Only while
+    // the header is naming where you ARE; on a journey the label is the route,
+    // and "Your journey - set by you" is nonsense.
+    $("startbtn").classList.toggle("guessed",
+      !moving && !!state.guessedStart && !state.scan);
+    if (state.scan) sel.value = state.scan.id;
+  }
+
+  /* Keep a copy of the app on the phone. Every placard now sits at the edge
+     of a dead zone, so the visitor loads it where there is signal and needs
+     it to still open where there is none. */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("sw.js").catch(function(){
+        /* http:// origins and private modes refuse to register. The app still
+           works online, so this is not worth bothering the visitor about. */
+      });
+    });
+  }
+
+  function showOffline(){ $("offbar").hidden = navigator.onLine; }
+  window.addEventListener("online",  showOffline);
+  window.addEventListener("offline", showOffline);
+  showOffline();
+
+  markHome();
+  window.addEventListener("popstate", function(){
+    if (state.picking !== null) {
+      state.picking = null; state.pickMode = "dest"; renderPick(); header();
+    }
+  });
+  window.addEventListener("hashchange", router);
+  header();
+
+  // A resident-sent link (?to=D-802) skips straight to the route.
+  if (params.get("to")) {
+    // A link from a resident carries the destination, not the visitor. Unless a
+    // placard also said where they are, we still do not know - and jumping to a
+    // route here would draw one from a start nobody chose. Fill the second row
+    // and let them answer the first.
+    state.dest = params.get("to");
+    if (isLiftNode(G.nodes[state.dest] || {}) && HAS_FOOT) state.mode = "foot";
+    if (state.startChosen) location.hash = "#/r/" + encodeURIComponent(state.dest);
+    else { show("pick"); renderPick(); }
+  }
+  else router();
+})();
+</script>
+
+
+</body></html>
