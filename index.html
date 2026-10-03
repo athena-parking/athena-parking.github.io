@@ -62,7 +62,10 @@
   /* With the location control hidden on the landing page the gear was the only
      thing in the header and slid to the left. Pin it to the right either way. */
   .gear{flex:0 0 auto;margin-left:auto;width:34px;height:34px;border:1px solid var(--line);border-radius:9px;
-    cursor:pointer;background:var(--surface-2);color:var(--text);font-size:15px}
+    cursor:pointer;background:var(--surface-2);color:var(--muted);display:grid;place-items:center;padding:0}
+  .gear .i{width:18px;height:18px}
+  .loc .v .sep{display:inline-flex;color:var(--muted);margin:0 6px;vertical-align:-.15em}
+  .loc .v .sep .i{width:15px;height:15px}
 
   /* ---------- view container ---------- */
   main{flex:1 1 auto;min-height:0;position:relative}
@@ -72,7 +75,7 @@
 
   /* ---------- picker ---------- */
   .pk-head{padding:16px 16px 10px;flex:0 0 auto}
-  .pk-head h2{margin:0 0 2px;font-size:21px;font-weight:800;letter-spacing:-.015em}
+  .pk-head h2{margin:0 0 2px;font-size:21px;font-weight:700;letter-spacing:-.015em}
   .pk-head p{margin:0;font-size:13.5px;color:var(--muted)}
   .pk-search{padding:0 16px 10px;flex:0 0 auto}
   input[type=search]{
@@ -82,7 +85,7 @@
   input[type=search]:focus{outline:2px solid var(--accent);outline-offset:-1px}
   .grp[hidden]{display:none}
   .grp{padding:12px 16px 2px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;
-    color:var(--muted);font-weight:800}
+    color:var(--muted);font-weight:700}
   .list{padding:0 12px 16px}
   .item{
     display:flex;align-items:center;gap:12px;width:100%;text-align:left;
@@ -99,7 +102,12 @@
   .item .t1{display:block;font-size:15.5px;font-weight:650;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .item .t2{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
-  .item .go{color:var(--muted);font-size:18px}
+  .item .go{color:var(--muted);display:inline-flex}
+  /* One set of line icons, drawn by us rather than by each phone's emoji font:
+     the same weight and colour everywhere, and they follow the theme. */
+  .i{width:1.2em;height:1.2em;display:inline-block;vertical-align:-.22em;flex:0 0 auto}
+  .item .ic .i{width:21px;height:21px}
+  .go .i{width:18px;height:18px}
   /* A dropdown for rows that share something - one block's lift on every
      level, one floor's flats. Native <details>, so a tap, the keyboard and a
      screen reader all open it without any script of ours. */
@@ -122,8 +130,9 @@
   .offbar[hidden]{display:none}
   .backbar{flex:0 0 auto;padding:10px 16px 0}
   .backbar button{border:1px solid var(--line);background:var(--surface);color:var(--text);
-    font:inherit;font-size:13.5px;font-weight:700;border-radius:9px;padding:9px 13px;
-    min-height:42px;cursor:pointer}
+    font:inherit;font-size:13.5px;font-weight:650;border-radius:9px;padding:9px 13px 9px 9px;
+    min-height:42px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+  .backbar button .i{width:17px;height:17px}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 16px}
   .gbtn{background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--text);
     font:inherit;cursor:pointer;min-height:58px;display:flex;flex-direction:column;
@@ -133,14 +142,14 @@
      six buttons that all look untouched. */
   .gbtn.on{background:var(--accent);border-color:var(--accent)}
   .gbtn.on .bl,.gbtn.on .bs{color:var(--accent-ink)}
-  .gbtn .bl{font-size:19px;font-weight:800;color:var(--accent);line-height:1.1}
+  .gbtn .bl{font-size:19px;font-weight:700;color:var(--accent);line-height:1.1}
   .gbtn .bs{font-size:10.5px;color:var(--muted);font-weight:650}
 
   /* ---------- route ---------- */
   .rhead{flex:0 0 auto;background:var(--accent-soft);border-bottom:1px solid var(--line);
     padding:11px 14px;display:flex;align-items:center;gap:10px}
   .rhead .tx{flex:1;min-width:0}
-  .rhead .d{font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rhead .d{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .rhead .s{font-size:12.5px;color:var(--muted);margin-top:1px}
   .rhead button{border:1px solid var(--line);background:var(--surface);color:var(--text);
     font:inherit;font-size:12.5px;font-weight:700;border-radius:9px;padding:8px 11px;cursor:pointer;
@@ -178,7 +187,10 @@
     justify-content:center;gap:16px;text-align:center;padding:4px 0;transition:transform .17s ease,opacity .17s ease}
   .stepwrap.from-r{transform:translateX(22px);opacity:.25}
   .stepwrap.from-l{transform:translateX(-22px);opacity:.25}
-  .stepwrap .sg{font-size:54px;line-height:1}
+  .stepwrap .sg{align-self:center;width:92px;height:92px;border-radius:50%;display:grid;place-items:center;
+    background:var(--accent-soft);color:var(--accent)}
+  .stepwrap .sg .i{width:50px;height:50px;stroke-width:1.75}
+  .stepwrap.arrive .sg{background:var(--accent);color:var(--accent-ink)}
   .stepwrap .st{font-size:26px;line-height:1.3;font-weight:750;letter-spacing:-.01em}
   .stepwrap .sm{font-size:14px;color:var(--muted)}
   .stepwrap img.shot{width:100%;max-width:420px;align-self:center;border-radius:14px;
@@ -186,8 +198,9 @@
   .stepwrap.arrive .st{color:var(--accent)}
   .slidenav{flex:0 0 auto;display:flex;gap:10px;padding-top:12px}
   .slidenav button{flex:1;min-height:56px;border:1px solid var(--line);border-radius:14px;
-    background:var(--surface);color:var(--text);font:inherit;font-size:16px;font-weight:750;
-    cursor:pointer;box-shadow:var(--shadow)}
+    background:var(--surface);color:var(--text);font:inherit;font-size:16px;font-weight:650;
+    cursor:pointer;box-shadow:var(--shadow);display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .slidenav button .i{width:19px;height:19px}
   .slidenav button.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .slidenav button:disabled{opacity:.4;box-shadow:none}
 
@@ -201,11 +214,11 @@
     cursor:pointer;box-shadow:var(--shadow)}
   .plan-row:active{background:var(--surface-2)}
   .plan-row .k{flex:0 0 96px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;
-    color:var(--muted);font-weight:800}
+    color:var(--muted);font-weight:700}
   .plan-row .v{flex:1;min-width:0;font-size:16px;font-weight:700;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .plan-row.unset .v{color:var(--muted);font-weight:600}
-  .plan-row .go{color:var(--muted);font-size:20px}
+  .plan-row .go{color:var(--muted);display:inline-flex}
   .plan-row.parked{border-color:var(--accent);background:var(--accent-soft)}
   .plan-row.parked .k{color:var(--accent)}
   .plan-row[hidden]{display:none}
@@ -213,7 +226,9 @@
     font:inherit;font-size:12.5px;font-weight:700;border-radius:9px;padding:8px 11px;
     cursor:pointer;min-height:40px;white-space:nowrap}
   .parkbtn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-  .parkbtn.wide{align-self:center;min-height:52px;padding:0 22px;font-size:15px;margin-top:4px}
+  .parkbtn.wide{align-self:center;min-height:52px;padding:0 22px;font-size:15px;margin-top:4px;
+    display:inline-flex;align-items:center;gap:8px}
+  .parkbtn .i{width:18px;height:18px}
   .plan-hint{margin:4px 2px 0;font-size:13px;color:var(--muted)}
   /* A segmented control, not two buttons: the pair reads as one question with
      one answer already given, which is what it is. */
@@ -222,6 +237,8 @@
   .modesw button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;
     font-size:15px;font-weight:700;border-radius:10px;padding:11px 6px;cursor:pointer;
     min-height:46px}
+  .modesw button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .modesw button .i{width:20px;height:20px}
   .modesw button[aria-pressed="true"]{background:var(--surface);color:var(--text);
     box-shadow:var(--shadow)}
   .modesw[hidden]{display:none}
@@ -281,7 +298,7 @@
     </span>
     <span class="edit" id="edit-lbl" aria-hidden="true">Change</span>
   </button>
-  <button class="gear" id="gear" aria-label="Test tools">⚙</button>
+  <button class="gear" id="gear" aria-label="Test tools"><span data-i="tools"></span></button>
 </header>
 
 <div class="offbar" id="offbar" hidden="">
@@ -292,30 +309,30 @@
   <!-- ============ 1. DESTINATION PICKER (landing) ============ -->
   <section class="view" id="v-pick">
     <div class="backbar" id="backbar" hidden="">
-      <button id="back-route">‹ Keep where I am</button>
+      <button id="back-route"><span data-i="back"></span>Keep where I am</button>
     </div>
     <div id="planpane">
       <!-- Asked first because it changes the answers to the other two: on foot
            the lift lobbies open up, and in a car they are not places you can
            go. Driving is the default - it is what a car park is for. -->
       <div class="modesw" id="modesw" role="group" aria-label="How are you travelling?">
-        <button type="button" id="m-car"  aria-pressed="true"><span aria-hidden="true">🚗</span> Driving</button>
-        <button type="button" id="m-foot" aria-pressed="false"><span aria-hidden="true">🚶</span> Walking</button>
+        <button type="button" id="m-car"  aria-pressed="true"><span aria-hidden="true" data-i="car"></span>Driving</button>
+        <button type="button" id="m-foot" aria-pressed="false"><span aria-hidden="true" data-i="walk"></span>Walking</button>
       </div>
       <button type="button" class="plan-row" id="pr-from">
         <span class="k">Starting from</span>
         <span class="v" id="ft-from-v">Tap to choose</span>
-        <span class="go" aria-hidden="true">›</span>
+        <span class="go" aria-hidden="true" data-i="chevron"></span>
       </button>
       <button type="button" class="plan-row" id="pr-to">
         <span class="k">Going to</span>
         <span class="v" id="ft-to-v">Tap to choose</span>
-        <span class="go" aria-hidden="true">›</span>
+        <span class="go" aria-hidden="true" data-i="chevron"></span>
       </button>
       <button type="button" class="plan-row parked" id="pr-car" hidden>
         <span class="k">Back to</span>
         <span class="v" id="ft-car-v">my car</span>
-        <span class="go" aria-hidden="true">›</span>
+        <span class="go" aria-hidden="true" data-i="chevron"></span>
       </button>
       <p class="plan-hint" id="plan-hint">Fill both and the directions open on their own.</p>
     </div>
@@ -354,8 +371,8 @@
       <div class="prog" id="prog"></div>
       <div class="stepwrap" id="steps"></div>
       <div class="slidenav">
-        <button id="s-prev">‹ Back</button>
-        <button id="s-next" class="go">Next ›</button>
+        <button id="s-prev"><span data-i="back"></span>Back</button>
+        <button id="s-next" class="go">Next<span data-i="chevron"></span></button>
       </div>
     </div>
   </section>
@@ -377,7 +394,7 @@
     <p style="font-size:12.5px;color:var(--muted);margin:8px 0 0">
       In the field this comes from the URL — <code>?s=G1</code> — so the app knows where you are
       without GPS, and which travel mode to default to.
-      <a href="qr.html">Open the placard sheet →</a>
+      <a href="qr.html">Open the placard sheet</a>
     </p>
     <label>Publish-time validation</label>
     <ul class="vl" id="val"></ul>
@@ -393,6 +410,59 @@
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
+
+  /* Line icons on a 24px grid, stroked in the text colour. Emoji were
+     different on every phone - a cartoon car on one, a photo-real one on
+     the next - and could not follow the theme. */
+  var ICONS = {
+    car:         '<path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11"/><path d="M4 11h16a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"/><path d="M6 17v1.5M18 17v1.5"/><circle cx="7.5" cy="14" r=".6" fill="currentColor"/><circle cx="16.5" cy="14" r=".6" fill="currentColor"/>',
+    walk:        '<circle cx="13" cy="4.5" r="1.8"/><path d="M12.5 8.5l-1.5 6"/><path d="M8.5 12l2.2-3.2a1 1 0 0 1 1.1-.4l1.7.5 2.5 3.1"/><path d="M11 14.5l-2.5 6"/><path d="M11 14.5l3 2.5.5 3.5"/>',
+    parking:     '<rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="M10 16.5v-9h3a2.75 2.75 0 0 1 0 5.5h-3"/>',
+    gate:        '<path d="M5 20V8"/><path d="M3 20h4"/><rect x="5" y="9" width="16" height="3.5" rx="1"/><path d="M9.5 9l-2 3.5M13.5 9l-2 3.5M17.5 9l-2 3.5"/>',
+    lift:        '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 9.5l3-3 3 3"/><path d="M9 14.5l3 3 3-3"/>',
+    building:    '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16"/><path d="M15 9h4a1 1 0 0 1 1 1v11"/><path d="M3 21h18"/><path d="M8 8h3M8 12h3M8 16h3"/>',
+    tools:       '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+    chevron:     '<path d="M9 6l6 6-6 6"/>',
+    back:        '<path d="M15 6l-6 6 6 6"/>',
+    arrow:       '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    check:       '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    straight:    '<path d="M12 20V5"/><path d="M6.5 10.5L12 5l5.5 5.5"/>',
+    left:        '<path d="M17 20v-6a4 4 0 0 0-4-4H6"/><path d="M10 6l-4 4 4 4"/>',
+    right:       '<path d="M7 20v-6a4 4 0 0 1 4-4h7"/><path d="M14 6l4 4-4 4"/>',
+    slightLeft:  '<path d="M15 20v-5.5L8 7.5"/><path d="M8 13.5v-6h6"/>',
+    slightRight: '<path d="M9 20v-5.5l7-7"/><path d="M10 7.5h6v6"/>',
+    uturn:       '<path d="M16 20V10a4.5 4.5 0 0 0-9 0v8"/><path d="M4 15l3 3 3-3"/>',
+    level:       '<path d="M8 20V5M4.5 8.5L8 5l3.5 3.5"/><path d="M16 4v15M12.5 15.5L16 19l3.5-3.5"/>',
+    start:       '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>',
+    arrive:      '<path d="M6 21V4"/><path d="M6 4.5h11l-2.5 4 2.5 4H6"/>'
+  };
+  function svgIcon(name){
+    return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+           'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+           (ICONS[name] || "") + "</svg>";
+  }
+  // The engine names each step's turn; the picture of it is ours to draw.
+  var STEP_ICON = { start: "start", straight: "straight", "left-slight": "slightLeft", left: "left",
+                    "right-slight": "slightRight", right: "right", uturn: "uturn", level: "level",
+                    arrive: "arrive" };
+  /* The picture must never contradict the words. The engine's turn comes
+     from the drawn angles, but an instruction someone wrote while standing
+     there ("Turn left onto the ramp") knows better - so a direction stated
+     in the text wins, and the angle decides only when the text does not say. */
+  function stepIcon(s){
+    if (s.kind === "arrive" || s.kind === "level" || s.kind === "start") return STEP_ICON[s.kind];
+    var t = s.text || "";
+    if (/\bu-?turn\b|\bturn (?:back|around)\b/i.test(t)) return "uturn";
+    var m = /\b(?:turn|bear|keep|fork|go|head|swing)\s+(slight(?:ly)?\s+)?(left|right)\b/i.exec(t);
+    if (m) {
+      var left = m[2].toLowerCase() === "left";
+      return m[1] ? (left ? "slightLeft" : "slightRight") : (left ? "left" : "right");
+    }
+    return STEP_ICON[s.kind] || "straight";
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i]"), function(el){
+    el.innerHTML = svgIcon(el.getAttribute("data-i"));
+  });
   var state = { at:"gate-a", mode:"car", dest:null, scan:null, view:"pick",
                 themePref:"auto",
                 // Which picker dropdowns are open, so a re-render keeps them.
@@ -546,7 +616,7 @@
       var n = document.createElement("div");
       n.className = "notice";
       n.textContent = "Placard “" + params.get("s") + "” is not recognised. It may have been " +
-        "replaced. Choose your location under ⚙ below, and please tell the guard the code on the placard.";
+        "replaced. Tap \u201cStarting from\u201d to choose where you are, and please tell the guard the code on the placard.";
       $("notice-slot").appendChild(n);
     }
   } else if (params.get("at") && G.nodes[params.get("at")]) {
@@ -696,9 +766,9 @@
      painted on the wall when you get there. */
   function slotRow(s){
     return s.flat
-      ? { id: s.id, icon: "🚗", t1: s.flat,
+      ? { id: s.id, icon: "car", t1: s.flat,
           t2: "Slot " + slotNum(s.id) + " · " + levelName(slotLevel(s)) }
-      : { id: s.id, icon: "🅿️", t1: "Visitor bay " + slotNum(s.id),
+      : { id: s.id, icon: "parking", t1: "Visitor bay " + slotNum(s.id),
           t2: levelName(slotLevel(s)) };
   }
   /* Visitor parking is the one destination nobody has a number for, so it is
@@ -712,7 +782,7 @@
     var rows = [];
     MAP.nodes.forEach(function(n){
       if (!isVisitorNode(n)) return;
-      rows.push({ id: n.id, node: n.id, icon: "🅿️", t1: n.name,
+      rows.push({ id: n.id, node: n.id, icon: "parking", t1: n.name,
                   t2: levelName(n.level) });
     });
     // No visitor area drawn yet - then the loose bays are all there is to offer.
@@ -725,7 +795,7 @@
     var rows = [];
     MAP.nodes.forEach(function(n){
       if (!isGateNode(n)) return;
-      rows.push({ id: n.id, node: n.id, icon: "🚦", t1: n.name,
+      rows.push({ id: n.id, node: n.id, icon: "gate", t1: n.name,
                   t2: levelName(n.level) });
     });
     return rows;
@@ -746,7 +816,7 @@
     var rows = [];
     MAP.nodes.forEach(function(n){
       if (!isLiftNode(n)) return;
-      rows.push({ id: n.id, node: n.id, icon: "🛗", t1: nodeLabel(n),
+      rows.push({ id: n.id, node: n.id, icon: "lift", t1: nodeLabel(n),
                   t2: levelName(n.level), level: n.level });
     });
     rows.sort(function(a, b){ return a.t1 < b.t1 ? -1 : a.t1 > b.t1 ? 1 : 0; });
@@ -849,7 +919,7 @@
   function byFloor(rows){
     return groupRows(rows, function(r){ return floorOf(r.t1); }, function(r){
       var f = floorOf(r.t1);
-      return { icon: "🏢", t1: floorName(f), finish: function(g){
+      return { icon: "building", t1: floorName(f), finish: function(g){
         var names = g.items.map(function(k){ return k.t1.replace(/^[A-Za-z]+-?/, ""); })
                            .filter(function(v, i, a){ return a.indexOf(v) === i; });
         g.t2 = names.length <= 5 ? names.join(" · ") : names.length + " flats";
@@ -894,7 +964,7 @@
     // No back bar while choosing: the header control sits right above it and
     // does the same job, and two ways out of one screen is one too many.
     $("backbar").hidden = state.picking !== null || !state.dest;
-    $("back-route").textContent = "‹ Back to directions";
+    $("back-route").innerHTML = svgIcon("back") + "Back to directions";
     header();
     if (state.picking === null) return;
 
@@ -954,10 +1024,10 @@
     // it still records its full name, so the header says "Block A lift", not
     // "Basement 2".
     function itemHtml(icon, t1, t2, extra){
-      return '<span class="ic" aria-hidden="true">' + (icon || "") + '</span>' +
+      return '<span class="ic" aria-hidden="true">' + svgIcon(icon) + '</span>' +
              '<span class="tx"><span class="t1">' + esc(t1) + '</span>' +
              '<span class="t2">' + esc(t2) + '</span></span>' + (extra || "") +
-             '<span class="go" aria-hidden="true">›</span>';
+             '<span class="go" aria-hidden="true">' + svgIcon("chevron") + '</span>';
     }
     function choice(r){
       var b = document.createElement("button");
@@ -1031,7 +1101,6 @@
   /* ================= 2. directions ================= */
   var lastRoute = null;
 
-  var PIN        = String.fromCodePoint(0x1F4CD);
   var HAS_CAR    = MAP.edges.some(function(e){ return e.mode.indexOf("car") >= 0; });
   var HAS_FOOT   = MAP.edges.some(function(e){ return e.mode.indexOf("foot") >= 0; });
   var lastKey = null;
@@ -1050,7 +1119,7 @@
     var w = $("steps");
     w.className = "stepwrap" + (s.final ? " arrive" : "");
     w.innerHTML =
-      '<div class="sg" aria-hidden="true">' + s.glyph + "</div>" +
+      '<div class="sg" aria-hidden="true">' + svgIcon(stepIcon(s)) + "</div>" +
       '<div class="st">' + esc(s.text) + "</div>" +
       (s.len || s.final || s.kind === "level"
         ? '<div class="sm">' + (s.len ? Math.round(s.len) + " m \u00b7 " : "") +
@@ -1065,7 +1134,7 @@
       var pk = loadParked(), on = pk && pk.dest === state.dest;
       var pb = $("s-park");
       pb.classList.toggle("on", !!on);
-      pb.textContent = on ? "\u2713 Saved - your car is here" : "Remember where I parked";
+      pb.innerHTML = on ? svgIcon("check") + "Saved \u2014 your car is here" : "Remember where I parked";
       pb.onclick = function(){
         var cur = loadParked();
         if (cur && cur.dest === state.dest) saveParked(null);
@@ -1076,7 +1145,7 @@
 
     $("s-prev").disabled = i === 0;
     $("s-next").disabled = i >= n - 1;
-    $("s-next").textContent = i >= n - 1 ? "Arrived" : "Next \u203a";
+    $("s-next").innerHTML = i >= n - 1 ? "Arrived" : "Next" + svgIcon("chevron");
   }
   function stepBy(d){
     if (!lastRoute) return;
@@ -1308,7 +1377,7 @@
   spIssues.concat(validate()).forEach(function(i){
     var li = document.createElement("li");
     li.className = "sev-" + i.sev;
-    li.textContent = (i.sev === "err" ? "✕ " : i.sev === "warn" ? "! " : "· ") + i.msg;
+    li.textContent = (i.sev === "err" ? "Error: " : i.sev === "warn" ? "Warning: " : "") + i.msg;
     $("val").appendChild(li);
   });
 
@@ -1357,7 +1426,7 @@
                   : d.kind === "unlocated" ? "Flat " + d.flat.id
                   : (nodeLabel(d.node) || state.dest)) : state.dest;
       $("loc-k").textContent = "Your journey";
-      $("youare").textContent = (here || "Start") + "  →  " + to;
+      $("youare").innerHTML = esc(here || "Start") + '<span class="sep">' + svgIcon("arrow") + "</span>" + esc(to);
       $("edit-lbl").textContent = "Start over";
     } else if (state.picking) {
       $("loc-k").textContent = state.picking === "start" ? "Choosing your start"
