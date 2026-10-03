@@ -100,6 +100,19 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .item .t2{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
   .item .go{color:var(--muted);font-size:18px}
+  /* A dropdown for rows that share something - one block's lift on every
+     level, one floor's flats. Native <details>, so a tap, the keyboard and a
+     screen reader all open it without any script of ours. */
+  .dd{margin:6px 0}
+  .dd > summary{display:block;list-style:none;cursor:pointer}
+  .dd > summary::-webkit-details-marker{display:none}
+  .dd > summary .item{margin:0}
+  .dd > summary .go{transition:transform .15s}
+  .dd[open] > summary .go{transform:rotate(90deg)}
+  .dd .n{flex:0 0 auto;min-width:24px;padding:2px 7px;border-radius:99px;background:var(--surface-2);
+    color:var(--muted);font-size:12px;font-weight:700;text-align:center}
+  .dd .kids{margin:0 0 4px 19px;padding-left:10px;border-left:2px solid var(--line)}
+  .dd .kids .item{min-height:48px;box-shadow:none}
   .empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:14px}
   .vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -382,6 +395,8 @@
   var $ = function(id){ return document.getElementById(id); };
   var state = { at:"gate-a", mode:"car", dest:null, scan:null, view:"pick",
                 themePref:"auto",
+                // Which picker dropdowns are open, so a re-render keeps them.
+                openGroups:{},
                 // "dest" = choosing where to go, "start" = choosing where you are.
                 pickMode:"dest",
                 // null on the two-row landing page; "start"/"dest" while a
@@ -787,6 +802,61 @@
      short enough to take in at a glance. */
   function blockRows(b){ return (SLOT_BLOCKS[b] || []).map(slotRow); }
 
+  /* Rows that share something fold into one dropdown: the same lift lobby on
+     every level, the same flat's two bays, one floor's flats. A "group" of
+     one stays a plain row - a dropdown hiding a single choice is a tap for
+     nothing. The group sits where its first member was, so the order of the
+     list does not change, only its length. */
+  function groupRows(rows, keyOf, headOf){
+    var count = {}, out = [], placed = {};
+    rows.forEach(function(r){ var k = keyOf(r); if (k != null) count[k] = (count[k] || 0) + 1; });
+    rows.forEach(function(r){
+      var k = keyOf(r);
+      if (k == null || count[k] < 2) { out.push(r); return; }
+      if (!placed[k]) { placed[k] = Object.assign({ group: k, items: [] }, headOf(r)); out.push(placed[k]); }
+      placed[k].items.push(r);
+    });
+    out.forEach(function(g){ if (g.group != null && g.finish) g.finish(g); });
+    return out;
+  }
+  /* Same name, different place: "Block A lift" on B1 and on B2, "Visitor
+     Parking" on two levels, one flat's two bays. Inside the dropdown the name
+     is already said, so each choice leads with what tells them apart. */
+  function bySameName(rows){
+    return groupRows(rows, function(r){ return r.t1; }, function(r){
+      return { icon: r.icon, t1: r.t1, finish: function(g){
+        g.items.forEach(function(k){ k.lead = k.t2; k.sub = k.t1; });
+        var lift = isLiftNode(G.nodes[g.items[0].node]);
+        g.t2 = g.items.length <= 3 ? g.items.map(function(k){ return k.t2; }).join(" · ")
+             : g.items.length + (lift ? " levels" : g.items[0].node ? " places" : " bays");
+      } };
+    });
+  }
+  /* A block's flats by floor, ground-floor units first - the order of the
+     building, which is the order people think of their neighbours in. */
+  function floorOf(flat){
+    if (/^[A-Za-z]+-?G[0-9]+$/.test(flat || "")) return "G";
+    var m = /^[A-Za-z]+-?([0-9]{1,2})[0-9]{2}$/.exec(flat || "");
+    return m ? String(+m[1]) : null;
+  }
+  /* "1st floor", "2nd floor", "11th floor" - said the way people say it. */
+  function floorName(f){
+    if (f === "G") return "Ground floor flats";
+    var n = +f, t = n % 100, u = n % 10;
+    var suf = (t >= 11 && t <= 13) ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th";
+    return n + suf + " floor";
+  }
+  function byFloor(rows){
+    return groupRows(rows, function(r){ return floorOf(r.t1); }, function(r){
+      var f = floorOf(r.t1);
+      return { icon: "🏢", t1: floorName(f), finish: function(g){
+        var names = g.items.map(function(k){ return k.t1.replace(/^[A-Za-z]+-?/, ""); })
+                           .filter(function(v, i, a){ return a.indexOf(v) === i; });
+        g.t2 = names.length <= 5 ? names.join(" · ") : names.length + " flats";
+      } };
+    });
+  }
+
   /* The block grid, rebuilt whenever the browse state changes. Blocks come
      from the slots that exist, not from the roster, so a block nobody has
      surveyed yet never offers an empty list. */
@@ -851,20 +921,20 @@
     }
     if (searching) {
       $("towers-wrap").hidden = true;
-      section("Matches", searchRows(raw, startMode));
+      section("Matches", bySameName(searchRows(raw, startMode)));
     } else if (state.browse) {
       // Inside a block the grid stays up, so the way back out is the same
       // button that got you in.
       renderBlockGrid();
       var bays = blockRows(state.browse);
       section((BLOCK_NAME[state.browse] || "Block " + state.browse) +
-              " — " + bays.length + " flats", bays);
+              " — " + bays.length + " flats", byFloor(bays));
     } else {
       renderBlockGrid();
-      section("Visitor parking and the gate", visitorRows().concat(gateRows()));
+      section("Visitor parking and the gate", bySameName(visitorRows().concat(gateRows())));
       // The one thing walking unlocks. Below the bays, because a resident on
       // foot is usually walking away from a bay rather than towards a lift.
-      if (state.mode === "foot") section("Lift lobbies", liftRows(startMode));
+      if (state.mode === "foot") section("Lift lobbies", bySameName(liftRows(startMode)));
     }
 
     if (!rows.length) {
@@ -879,22 +949,51 @@
       return;
     }
 
+    // A row is a heading, a choice, or a dropdown of choices. Inside a
+    // dropdown a choice leads with what tells it apart (r.lead), but picking
+    // it still records its full name, so the header says "Block A lift", not
+    // "Basement 2".
+    function itemHtml(icon, t1, t2, extra){
+      return '<span class="ic" aria-hidden="true">' + (icon || "") + '</span>' +
+             '<span class="tx"><span class="t1">' + esc(t1) + '</span>' +
+             '<span class="t2">' + esc(t2) + '</span></span>' + (extra || "") +
+             '<span class="go" aria-hidden="true">›</span>';
+    }
+    function choice(r){
+      var b = document.createElement("button");
+      var t1 = r.lead || r.t1, t2 = r.lead ? r.sub : r.t2;
+      b.className = "item";
+      b.innerHTML = itemHtml(r.icon, t1, t2);
+      b.setAttribute("aria-label", r.lead ? r.t1 + ", " + r.t2 : r.t1 + ". " + r.t2);
+      b.onclick = function(){ if (startMode) setStart(r); else goDest(r.id); };
+      return b;
+    }
+    var heading = "";
     rows.forEach(function(r){
       if (r.head) {
+        heading = r.head;
         var h = document.createElement("div");
         h.className = "grp"; h.textContent = r.head;
         list.appendChild(h);
         return;
       }
-      var b = document.createElement("button");
-      b.className = "item";
-      b.innerHTML = '<span class="ic" aria-hidden="true">' + (r.icon || "") + '</span>' +
-                    '<span class="tx"><span class="t1">' + esc(r.t1) + '</span>' +
-                    '<span class="t2">' + esc(r.t2) + '</span></span>' +
-                    '<span class="go" aria-hidden="true">›</span>';
-      b.setAttribute("aria-label", r.t1 + ". " + r.t2);
-      b.onclick = function(){ if (startMode) setStart(r); else goDest(r.id); };
-      list.appendChild(b);
+      if (r.group == null) { list.appendChild(choice(r)); return; }
+      // Remember which dropdowns are open: the list is rebuilt on every
+      // keystroke and mode switch, and snapping shut under a thumb is rude.
+      var key = state.pickMode + "|" + heading + "|" + r.group;
+      var d = document.createElement("details");
+      d.className = "dd";
+      d.open = !!state.openGroups[key];
+      var s = document.createElement("summary");
+      s.innerHTML = '<div class="item">' + itemHtml(r.icon, r.t1, r.t2,
+        '<span class="n" aria-hidden="true">' + r.items.length + '</span>') + '</div>';
+      s.setAttribute("aria-label", r.t1 + ", " + r.items.length + " choices: " + r.t2);
+      var kids = document.createElement("div");
+      kids.className = "kids";
+      r.items.forEach(function(k){ kids.appendChild(choice(k)); });
+      d.appendChild(s); d.appendChild(kids);
+      d.addEventListener("toggle", function(){ state.openGroups[key] = d.open; });
+      list.appendChild(d);
     });
   }
 
@@ -924,7 +1023,9 @@
 
   $("q").oninput = renderPick;
   $("q").onkeydown = function(e){
-    if (e.key === "Enter") { var f = $("picklist").querySelector(".item"); if (f) f.click(); }
+    // The first real choice, even one folded inside a dropdown - never the
+    // dropdown's own header, which would only open it.
+    if (e.key === "Enter") { var f = $("picklist").querySelector("button.item"); if (f) f.click(); }
   };
 
   /* ================= 2. directions ================= */
