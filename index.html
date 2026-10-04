@@ -330,6 +330,20 @@
   .mv-dest{fill:var(--accent);stroke:var(--surface)}
   .mv-start{fill:var(--surface);stroke:var(--accent)}
   .mv-sel{fill:none;stroke:var(--accent)}
+  .mv-net{fill:none;stroke:var(--muted);stroke-linecap:round}
+  .mv-arrow{fill:var(--muted)}
+  .mv-cur{fill:none;stroke:var(--accent);stroke-linecap:round;stroke-linejoin:round}
+  .mv-num{fill:var(--surface);stroke:var(--accent)}
+  .mv-num.on{fill:var(--accent)}
+  .mv-numt{fill:var(--accent);font-weight:800}
+  .mv-numt.on{fill:var(--accent-ink)}
+  .mapv-lv #mv-net{margin-left:auto}
+  .mapv-lv #mv-net[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+  .mapv-step{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .mapv-step .t{flex:1;min-width:0;color:var(--text);font-size:13.5px;line-height:1.32}
+  .mapv-step .t b{display:block;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .mapv-step .t small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+  .mapv .mapv-step button{width:44px;height:44px;padding:0;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -1355,7 +1369,7 @@
      drawings are cached with the app, so it works underground too. */
   var PLAN_LEVELS = MAP.levels.filter(function(l){ return l.image && Array.isArray(l.imageBox); });
   var MV = { open:false, pushed:false, after:null, level:null, s:1, min:.2, tx:0, ty:0, w:1, h:1,
-             sel:null, route:null, raf:0 };
+             sel:null, route:null, raf:0, net:true };
   var SVGNS = "http://www.w3.org/2000/svg";
   var SLOT_AT = {};
   MAP.slots.forEach(function(sl){ if (Array.isArray(sl.at)) SLOT_AT[sl.id] = sl.at; });
@@ -1404,6 +1418,54 @@
   }
   function mvTouches(r, lv){ return !!(mvRouteLines(r, lv).length || mvDestOn(r, lv)); }
 
+  /* One instruction's stretch of the route, as polylines per level. The engine
+     tells each step which path edge it starts on; it runs to the next step's. */
+  function mvStepSegs(r, k){
+    var st = r.steps[k], edges = r.path.edges, out = [], cur = null;
+    if (!st || st.edge == null) return out;
+    var sl = r.dest.kind === "slot" ? r.dest.slot : null;
+    if (st.edge >= edges.length) {                       // the part-aisle leg into the bay
+      if (sl) { var ae = G.edges[sl.edge]; out.push({ level: mvSlotLevel(sl), pts: [G.nodes[ae.from].xy.slice(), mvSlotAisle(sl)] }); }
+      return out;
+    }
+    var end = edges.length;
+    for (var j = k + 1; j < r.steps.length; j++) if (r.steps[j].edge != null) { end = Math.min(r.steps[j].edge, edges.length); break; }
+    for (var i = st.edge; i < end; i++) {
+      var A = G.nodes[edges[i].a], B = G.nodes[edges[i].b];
+      if (A.level !== B.level) { cur = null; out.push({ level: B.level, pts: [B.xy.slice()] }); continue; }   // a ramp: where it lands
+      if (!cur || cur.level !== A.level) { cur = { level: A.level, pts: [A.xy.slice()] }; out.push(cur); }
+      cur.pts.push(B.xy.slice());
+    }
+    if (sl && end === edges.length && cur && edges[edges.length - 1].id === sl.edge) cur.pts[cur.pts.length - 1] = mvSlotAisle(sl);
+    return out;
+  }
+  function mvStepLevel(r, k){
+    var st = r.steps[k];
+    if (st && st.final) { var d = r.dest.kind === "slot" ? mvSlotLevel(r.dest.slot) : r.dest.node.level; return mvLevel(d) ? d : null; }
+    var segs = mvStepSegs(r, k).filter(function(g){ return mvLevel(g.level); });
+    return segs.length ? segs[0].level : null;
+  }
+  function mvFocusStep(){
+    var r = MV.route; if (!r) return;
+    var k = state.stepIx, lv = mvStepLevel(r, k);
+    if (lv && lv !== MV.level) mvSetLevel(lv, true);
+    var pts = [];
+    mvStepSegs(r, k).forEach(function(g){ if (g.level === MV.level) pts = pts.concat(g.pts); });
+    if (r.steps[k] && r.steps[k].final) { var d = mvDestOn(r, MV.level); if (d) pts.push(d.xy); }
+    if (!pts.length) { mvText(); return mvFit(); }
+    var xs = pts.map(function(p){ return p[0]; }), ys = pts.map(function(p){ return p[1]; });
+    var pad = 60;
+    mvFitBox(Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys), pad, 3);
+    mvText();
+  }
+  function mvStep(d){
+    var r = MV.route; if (!r) return;
+    state.stepIx = Math.max(0, Math.min(state.stepIx + d, r.steps.length - 1));
+    renderStep();                       // the directions behind the map stay on the same step
+    MV.sel = null;
+    mvFocusStep(); mvApply(true);
+  }
+
   function mvDraw(){
     MV.raf = 0;
     var svg = $("mv-svg");
@@ -1417,6 +1479,24 @@
     }
     var destId = r && r.dest.kind === "slot" ? r.dest.slot.id : null;
     var bayLabels = MV.s >= 2.2;
+    if (MV.net) {
+      // every aisle the router could use: solid for driving, dashed for walking only, arrows on one-way stretches
+      MAP.edges.forEach(function(e){
+        var A = G.nodes[e.from], B = G.nodes[e.to];
+        if (!A || !B || A.level !== lv || B.level !== lv) return;
+        var car = (e.mode || []).indexOf("car") >= 0;
+        el("line", { x1: A.xy[0], y1: A.xy[1], x2: B.xy[0], y2: B.xy[1], "class": "mv-net", "stroke-width": 2.5 * k,
+                     opacity: .75, "stroke-dasharray": car ? "none" : (5 * k) + "," + (4 * k) });
+        if (e.oneway) {
+          var mx = (A.xy[0] + B.xy[0]) / 2, my = (A.xy[1] + B.xy[1]) / 2;
+          var ang = Math.atan2(B.xy[1] - A.xy[1], B.xy[0] - A.xy[0]), a = 7 * k;
+          var tip = [mx + Math.cos(ang) * a, my + Math.sin(ang) * a];
+          var l = [mx + Math.cos(ang + 2.5) * a, my + Math.sin(ang + 2.5) * a];
+          var rr = [mx + Math.cos(ang - 2.5) * a, my + Math.sin(ang - 2.5) * a];
+          el("polygon", { points: [tip, l, rr].map(function(p){ return p[0] + "," + p[1]; }).join(" "), "class": "mv-arrow" });
+        }
+      });
+    }
     MAP.slots.forEach(function(sl){
       if (sl.id === destId || mvSlotLevel(sl) !== lv) return;
       var p = mvSlotXY(sl);
@@ -1433,14 +1513,31 @@
     if (r) {
       mvRouteLines(r, lv).forEach(function(line){
         var pts = line.map(function(p){ return p[0] + "," + p[1]; }).join(" ");
-        el("polyline", { points: pts, "class": "mv-casing", "stroke-width": 9 * k });
-        el("polyline", { points: pts, "class": "mv-route", "stroke-width": 5 * k });
+        el("polyline", { points: pts, "class": "mv-casing", "stroke-width": 8 * k });
+        el("polyline", { points: pts, "class": "mv-route", "stroke-width": 4.5 * k, opacity: .5 });
+      });
+      // the step the directions are on, drawn over the rest
+      mvStepSegs(r, state.stepIx).forEach(function(g){
+        if (g.level !== lv || g.pts.length < 2) return;
+        var pts = g.pts.map(function(p){ return p[0] + "," + p[1]; }).join(" ");
+        el("polyline", { points: pts, "class": "mv-casing", "stroke-width": 11 * k });
+        el("polyline", { points: pts, "class": "mv-cur", "stroke-width": 7 * k });
       });
       var st = mvStartOn(r, lv);
       if (st) {
         el("circle", { cx: st.xy[0], cy: st.xy[1], r: 7 * k, "class": "mv-start", "stroke-width": 3.5 * k });
         label(st.xy[0], st.xy[1] + 24 * k, st.first ? "Start" : "Route enters here", 12, "middle");
       }
+      // where each instruction starts, numbered as in the directions
+      r.steps.forEach(function(stp, n){
+        if (stp.final) return;
+        var g = mvStepSegs(r, n)[0];
+        if (!g || g.level !== lv) return;
+        var on = n === state.stepIx, p = g.pts[0];
+        el("circle", { cx: p[0], cy: p[1], r: 9.5 * k, "class": "mv-num" + (on ? " on" : ""), "stroke-width": 2.5 * k });
+        var t = el("text", { x: p[0], y: p[1] + 4 * k, "font-size": 11 * k, "text-anchor": "middle", "class": "mv-numt" + (on ? " on" : "") });
+        t.textContent = String(n + 1);
+      });
       var d = mvDestOn(r, lv);
       if (d) {
         if (d.aisle) el("line", { x1: d.aisle[0], y1: d.aisle[1], x2: d.xy[0], y2: d.xy[1], "class": "mv-route",
@@ -1488,7 +1585,7 @@
     }
     mvFitBox(0, 0, MV.w, MV.h, 0, MV.min);
   }
-  function mvSetLevel(id){
+  function mvSetLevel(id, noFit){
     var l = mvLevel(id);
     if (!l) return;
     MV.level = id;
@@ -1499,21 +1596,24 @@
     img.src = l.image;
     svg.setAttribute("width", MV.w); svg.setAttribute("height", MV.h);
     svg.setAttribute("viewBox", "0 0 " + MV.w + " " + MV.h);
-    Array.prototype.forEach.call($("mv-levels").children, function(b){
+    Array.prototype.forEach.call($("mv-levels").querySelectorAll("[data-l]"), function(b){
       b.classList.toggle("on", b.getAttribute("data-l") === id);
       b.setAttribute("aria-pressed", b.getAttribute("data-l") === id ? "true" : "false");
     });
+    var stg = $("mv-stage");
+    MV.min = Math.min(stg.clientWidth / MV.w, stg.clientHeight / MV.h) * .96;
     mvText();
-    mvFit();
+    if (!noFit) mvFit();
   }
   function mvText(){
     var r = MV.route, l = mvLevel(MV.level);
     $("mv-title").textContent = r ? destLabel() : "Parking map";
     var sub = l ? l.name : "";
     if (r) {
-      var cur = r.steps[state.stepIx];
+      var slv = mvStepLevel(r, state.stepIx);
       if (!mvTouches(r, MV.level)) sub += " · not on your route";
-      else if (cur && !mvLevel(cur.level)) sub += " · you are above ground: follow the steps until here";
+      else if (!slv) sub += " · step " + (state.stepIx + 1) + " is above ground, not on a plan";
+      else if (slv !== MV.level) sub += " · step " + (state.stepIx + 1) + " is on " + levelName(slv);
     } else sub += " · tap a bay to see whose it is";
     $("mv-sub").textContent = sub;
     var foot = $("mv-foot");
@@ -1530,12 +1630,28 @@
       return;
     }
     var dot = function(cls){ return '<i style="width:10px;height:10px;border-radius:50%;background:var(' + cls + ')"></i>'; };
-    foot.innerHTML = '<div class="mapv-key">' +
-      (r ? '<span><i style="width:18px;height:5px;border-radius:3px;background:var(--accent)"></i>Your route</span>' +
+    var stepHtml = "";
+    if (r) {
+      var cs = r.steps[state.stepIx], nst = r.steps.length;
+      stepHtml = '<div class="mapv-step"><button type="button" id="mv-prev" aria-label="Previous step"' +
+        (state.stepIx === 0 ? " disabled" : "") + ">" + svgIcon("back") + "</button>" +
+        '<div class="t"><b>Step ' + (state.stepIx + 1) + " of " + nst + "</b>" + esc(cs.text) +
+        "<small>" + (cs.len ? Math.round(cs.len) + " m · " : "") + esc(levelName(cs.level)) + "</small></div>" +
+        '<button type="button" id="mv-next" aria-label="Next step"' + (state.stepIx >= nst - 1 ? " disabled" : "") + ">" +
+        svgIcon("chevron") + "</button></div>";
+    }
+    foot.innerHTML = stepHtml + '<div class="mapv-key">' +
+      (r ? '<span><i style="width:18px;height:5px;border-radius:3px;background:var(--accent);opacity:.5"></i>Your route</span>' +
+           '<span><i style="width:18px;height:7px;border-radius:3px;background:var(--accent)"></i>This step</span>' +
            "<span>" + dot("--accent") + (r.dest.kind === "slot" ? "Your bay" : "Destination") + "</span>" : "") +
       '<span><i style="width:10px;height:10px;border-radius:2px;background:var(--text)"></i>Lift lobby or entry</span>' +
       "<span>" + dot("--bay") + (r ? "Other bays" : "Bays") + "</span>" +
-      "<span>Pinch or use + and - to zoom</span></div>";
+      (MV.net ? '<span><i style="width:18px;height:2px;background:var(--muted)"></i>Aisles (dashed: walking only)</span>' : "") +
+      (r ? "" : "<span>Pinch or use + and - to zoom</span>") + "</div>";
+    if (r) {
+      $("mv-prev").onclick = function(){ mvStep(-1); };
+      $("mv-next").onclick = function(){ mvStep(1); };
+    }
   }
   function mvTap(clientX, clientY){
     var rc = $("mv-stage").getBoundingClientRect();
@@ -1568,13 +1684,17 @@
     $("mv-levels").innerHTML = PLAN_LEVELS.map(function(l){
       return '<button type="button" data-l="' + esc(l.id) + '">' +
              (r && mvTouches(r, l.id) ? '<span class="r" title="On your route"></span>' : "") + esc(l.name) + "</button>";
-    }).join("");
-    Array.prototype.forEach.call($("mv-levels").children, function(b){
+    }).join("") + '<button type="button" id="mv-net" aria-pressed="' + MV.net + '">Aisles</button>';
+    Array.prototype.forEach.call($("mv-levels").querySelectorAll("[data-l]"), function(b){
       b.onclick = function(){ MV.sel = null; mvSetLevel(b.getAttribute("data-l")); };
     });
+    $("mv-net").onclick = function(){
+      MV.net = !MV.net; this.setAttribute("aria-pressed", String(MV.net)); mvText(); mvApply(true);
+    };
     $("mapv").hidden = false; MV.open = true;
     try { history.pushState({ mapview: 1 }, ""); MV.pushed = true; } catch (e) { MV.pushed = false; }
     mvSetLevel(lv);
+    if (r) mvFocusStep();
     $("mv-close").focus();
   }
   function mvHide(){
@@ -1600,6 +1720,11 @@
   $("mv-in").onclick = function(){ var st = $("mv-stage"); mvZoomAt(1.6, st.clientWidth / 2, st.clientHeight / 2); };
   $("mv-out").onclick = function(){ var st = $("mv-stage"); mvZoomAt(1 / 1.6, st.clientWidth / 2, st.clientHeight / 2); };
   $("mv-fit").onclick = mvFit;
+  document.addEventListener("keydown", function(e){
+    if (!MV.open || !MV.route) return;
+    if (e.key === "ArrowRight") mvStep(1);
+    if (e.key === "ArrowLeft") mvStep(-1);
+  });
   $("mapbtn").onclick = openMap;
   $("r-map").onclick = openMap;
   $("mapbtn").hidden = $("r-map").hidden = !PLAN_LEVELS.length;

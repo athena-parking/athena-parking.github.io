@@ -258,6 +258,7 @@ function createEngine(MAP) {
         // Authored text is the surveyor's words and is never rewritten.
         auto: !text, turn: turn,
         len: e.len, merged: 0,
+        edge: i,          // index of the step's first path edge, so a map can draw each step
         level: G.nodes[e.b].level,
         photo: e.photo || null
       });
@@ -275,7 +276,7 @@ function createEngine(MAP) {
         steps.push({
           glyph: GLYPH[at.kind] || "↑", kind: at.kind,
           text: ae.instruction || defaultText(ae, at, ae.len * s.t),
-          len: Math.round(ae.len * s.t), merged: 0,
+          len: Math.round(ae.len * s.t), merged: 0, edge: path.edges.length,   // the part-aisle leg
           level: G.nodes[ae.to].level, photo: ae.photo || null
         });
       }
