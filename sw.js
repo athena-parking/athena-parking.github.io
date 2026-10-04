@@ -18,7 +18,7 @@
          network genuinely is not there.
    ============================================================ */
 
-const VERSION    = "athena-928062889";
+const VERSION    = "athena-3540303543";
 const DATA_FILES = ["map.js", "scanpoints.js"];
 const NET_TIMEOUT = 2500;
 
