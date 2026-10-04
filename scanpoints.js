@@ -5,19 +5,19 @@ var SCANPOINTS = (function () {
       label: "Main Gate",
       mount: "Guard cabin wall, driver's side.", rev: 1 },
 
-    { id: "RB", node: "ramp-b1", level: "B1", audience: "car",
+    { id: "RB", node: "main-ramp-foot", level: "P2", audience: "car",
       label: "Foot of the entry ramp",
       mount: "Ramp wall at the bottom.", rev: 1 },
 
-    { id: "VP", node: "visitor-b1", level: "B1", audience: "car",
+    { id: "VP", node: "visitor", level: "P2", audience: "car",
       label: "Visitor Parking",
       mount: "First pillar of the visitor bays.", rev: 1 },
 
-    { id: "LA", node: "lift-a-b1", level: "B1", audience: "foot",
+    { id: "LA", node: "lift-a", level: "P2", audience: "foot",
       label: "Block A Lift",
       mount: "Beside the lift call button.", rev: 1 },
 
-    { id: "LD", node: "lift-d-b1", level: "B1", audience: "foot",
+    { id: "LD", node: "lift-d", level: "P2", audience: "foot",
       label: "Block D Lift",
       mount: "Beside the lift call button.", rev: 1 }
   ];
