@@ -18,7 +18,7 @@
          network genuinely is not there.
    ============================================================ */
 
-const VERSION    = "athena-912726842";
+const VERSION    = "athena-3201545769";
 const DATA_FILES = ["map.js", "scanpoints.js"];
 const NET_TIMEOUT = 2500;
 
@@ -41,9 +41,10 @@ function planUrls(cache) {
     .then(t => {
       const seen = new Set();
       let m;
-      // Floor plans are NOT cached any more: the multi-map view they were the
-      // backdrop for is gone, and a megabyte of CAD sheets nothing renders is a
-      // megabyte the visitor downloads at the gate for nothing.
+      // Each level's plan drawing, for the map view. Only the ones map.js names
+      // (two small PNGs), so the route can be seen underground with no signal.
+      const plan = /"image"\s*:\s*"([^"]+)"/g;
+      while ((m = plan.exec(t))) seen.add("./" + m[1]);
       // Turn photographs matter more than anything else here: the whole reason
       // one exists is a junction that words describe badly, and that junction is
       // underground where there is no network to fetch it from.
@@ -156,6 +157,7 @@ self.addEventListener("fetch", event => {
   // local allotment review page, which only the dev server has.
   if (url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/review/") ||
+      url.pathname.endsWith("/points.html") ||
       url.pathname.endsWith("/admin.html") ||
       url.pathname.endsWith("/editor.html")) return;
 

@@ -16,7 +16,7 @@
     --accent-soft:#e7effd; --warn:#8a5200; --err:#b3261e;
     --hdr:#ffffff; --scrim:rgba(16,24,39,.45);
     --shadow:0 1px 2px rgba(16,24,39,.06),0 4px 14px rgba(16,24,39,.07);
-    --hdrh:52px;
+    --hdrh:52px; --bay:#0f7a6e;
   }
   :root[data-theme="dark"]{
     --bg:#05070f; --surface:#0c1424; --surface-2:#15203a; --line:#24314f;
@@ -24,6 +24,7 @@
     --accent-soft:#10203c; --warn:#f0b866; --err:#ff8f8a;
     --hdr:#080f1e; --scrim:rgba(0,0,0,.68);
     --shadow:0 1px 2px rgba(0,0,0,.45),0 4px 14px rgba(0,0,0,.4);
+    --bay:#4fd1b5;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   /* html must carry the background too: Chrome on Android paints the
@@ -284,6 +285,51 @@
   .sheet-in a{color:var(--accent)}
   .close{width:100%;margin-top:14px;border:0;border-radius:11px;background:var(--accent);
     color:var(--accent-ink);font:inherit;font-weight:800;padding:13px;min-height:48px;cursor:pointer}
+
+  /* ---------- map view ---------- */
+  .gear + .gear{margin-left:0}
+  .gear[hidden], .parkbtn[hidden]{display:none}
+  .mapv{position:fixed;inset:0;z-index:15;background:var(--bg);display:flex;flex-direction:column}
+  .mapv[hidden]{display:none}
+  .mapv-bar{flex:0 0 auto;display:flex;align-items:center;gap:10px;background:var(--hdr);
+    border-bottom:1px solid var(--line);padding:9px 14px;padding-top:calc(9px + env(safe-area-inset-top))}
+  .mapv-bar .tx{flex:1;min-width:0}
+  .mapv-bar .d{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mapv-bar .s{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .mapv button{border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;
+    font-size:13px;font-weight:700;border-radius:9px;min-height:40px;padding:0 12px;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+  .mapv button .i{width:18px;height:18px}
+  .mapv-lv{flex:0 0 auto;display:flex;gap:6px;padding:8px 14px;overflow-x:auto;background:var(--surface-2);
+    border-bottom:1px solid var(--line)}
+  .mapv-lv button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .mapv-lv .r{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .mapv-lv button.on .r{background:var(--accent-ink)}
+  .mapv-stage{flex:1 1 auto;min-height:0;position:relative;overflow:hidden;touch-action:none;
+    background:var(--surface-2);cursor:grab}
+  .mapv-layer{position:absolute;left:0;top:0;transform-origin:0 0}
+  .mapv-layer img{display:block;max-width:none;user-select:none;-webkit-user-drag:none;pointer-events:none}
+  .mapv-layer svg{position:absolute;left:0;top:0;overflow:visible}
+  /* The drawing is black on white. Underground the app is dark, so the plan is too. */
+  :root[data-theme="dark"] .mapv-layer img{filter:invert(1) hue-rotate(180deg) brightness(.72) contrast(.9)}
+  .mapv-zoom{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:6px}
+  .mapv-zoom button{width:44px;height:44px;padding:0;box-shadow:var(--shadow)}
+  .mapv-foot{flex:0 0 auto;background:var(--hdr);border-top:1px solid var(--line);
+    padding:9px 14px;padding-bottom:calc(9px + env(safe-area-inset-bottom));font-size:12.5px;color:var(--muted)}
+  .mapv-key{display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center}
+  .mapv-key span{display:inline-flex;align-items:center;gap:6px}
+  .mapv-key i{display:inline-block;flex:0 0 auto}
+  .mapv-sel{display:flex;align-items:center;gap:10px}
+  .mapv-sel .t{flex:1;min-width:0;color:var(--text);font-size:14px;font-weight:700}
+  .mapv-sel .t small{display:block;font-size:12px;color:var(--muted);font-weight:600}
+  .mv-bay{fill:var(--bay)}
+  .mv-lbl{fill:var(--text);stroke:var(--surface);paint-order:stroke;stroke-linejoin:round;font-weight:650}
+  .mv-place{fill:var(--text);stroke:var(--surface)}
+  .mv-casing{fill:none;stroke:var(--surface);stroke-linecap:round;stroke-linejoin:round}
+  .mv-route{fill:none;stroke:var(--accent);stroke-linecap:round;stroke-linejoin:round}
+  .mv-dest{fill:var(--accent);stroke:var(--surface)}
+  .mv-start{fill:var(--surface);stroke:var(--accent)}
+  .mv-sel{fill:none;stroke:var(--accent)}
 </style>
 </head>
 <body>
@@ -298,6 +344,7 @@
     </span>
     <span class="edit" id="edit-lbl" aria-hidden="true">Change</span>
   </button>
+  <button class="gear" id="mapbtn" aria-label="Show the parking map" hidden><span data-i="map"></span></button>
   <button class="gear" id="gear" aria-label="Test tools"><span data-i="tools"></span></button>
 </header>
 
@@ -365,6 +412,7 @@
         <div class="d" id="r-dest">—</div>
         <div class="s" id="r-stats"></div>
       </div>
+      <button class="parkbtn" id="r-map" hidden>Map</button>
       <button class="parkbtn" id="r-share">Share</button>
     </div>
     <div class="slide" id="slide">
@@ -378,6 +426,27 @@
   </section>
 
 </main>
+
+<!-- map view: the plan drawing with the journey over it -->
+<div class="mapv" id="mapv" role="dialog" aria-modal="true" aria-labelledby="mv-title" hidden>
+  <div class="mapv-bar">
+    <div class="tx">
+      <div class="d" id="mv-title">Parking map</div>
+      <div class="s" id="mv-sub"></div>
+    </div>
+    <button type="button" id="mv-close"><span data-i="close"></span>Close</button>
+  </div>
+  <div class="mapv-lv" id="mv-levels" role="group" aria-label="Level"></div>
+  <div class="mapv-stage" id="mv-stage">
+    <div class="mapv-layer" id="mv-layer"><img id="mv-img" alt=""><svg id="mv-svg" aria-hidden="true"></svg></div>
+    <div class="mapv-zoom">
+      <button type="button" id="mv-in" aria-label="Zoom in"><span data-i="plus"></span></button>
+      <button type="button" id="mv-out" aria-label="Zoom out"><span data-i="minus"></span></button>
+      <button type="button" id="mv-fit" aria-label="Show the whole route"><span data-i="fit"></span></button>
+    </div>
+  </div>
+  <div class="mapv-foot" id="mv-foot"></div>
+</div>
 
 <!-- test harness, kept out of the visitor's way -->
 <div class="sheet" id="sheet">
@@ -434,7 +503,12 @@
     uturn:       '<path d="M16 20V10a4.5 4.5 0 0 0-9 0v8"/><path d="M4 15l3 3 3-3"/>',
     level:       '<path d="M8 20V5M4.5 8.5L8 5l3.5 3.5"/><path d="M16 4v15M12.5 15.5L16 19l3.5-3.5"/>',
     start:       '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>',
-    arrive:      '<path d="M6 21V4"/><path d="M6 4.5h11l-2.5 4 2.5 4H6"/>'
+    arrive:      '<path d="M6 21V4"/><path d="M6 4.5h11l-2.5 4 2.5 4H6"/>',
+    map:         '<path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
+    plus:        '<path d="M12 5v14M5 12h14"/>',
+    minus:       '<path d="M5 12h14"/>',
+    fit:         '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    close:       '<path d="M6 6l12 12M18 6 6 18"/>'
   };
   function svgIcon(name){
     return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -1273,6 +1347,320 @@
 
     // jump the map to the level the route ends on
   }
+
+  /* ================= map view ================= */
+  /* The plan drawing with the journey over it. The steps stay the main thing -
+     words and photos are what a driver can use - but someone who wants to SEE
+     where the bay is, or check the way before setting off, can open this. The
+     drawings are cached with the app, so it works underground too. */
+  var PLAN_LEVELS = MAP.levels.filter(function(l){ return l.image && Array.isArray(l.imageBox); });
+  var MV = { open:false, pushed:false, after:null, level:null, s:1, min:.2, tx:0, ty:0, w:1, h:1,
+             sel:null, route:null, raf:0 };
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var SLOT_AT = {};
+  MAP.slots.forEach(function(sl){ if (Array.isArray(sl.at)) SLOT_AT[sl.id] = sl.at; });
+  function mvLevel(id){ return PLAN_LEVELS.filter(function(l){ return l.id === id; })[0] || null; }
+  function mvLerp(a, b, t){ return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+  function mvSlotLevel(sl){ return G.nodes[G.edges[sl.edge].from].level; }
+  function mvSlotAisle(sl){ var e = G.edges[sl.edge]; return mvLerp(G.nodes[e.from].xy, G.nodes[e.to].xy, sl.t); }
+  function mvSlotXY(sl){ return SLOT_AT[sl.id] || mvSlotAisle(sl); }
+  function mvBayName(sl){ return sl.flat || "Visitor bay"; }
+
+  /* The route on one level, as polylines in plan units. */
+  function mvRouteLines(r, lv){
+    var lines = [], cur = null, edges = r.path.edges;
+    edges.forEach(function(e){
+      var A = G.nodes[e.a], B = G.nodes[e.b];
+      if (!A || !B || A.level !== lv || B.level !== lv) { cur = null; return; }
+      if (!cur) { cur = [A.xy.slice()]; lines.push(cur); }
+      cur.push(B.xy.slice());
+    });
+    var sl = r.dest.kind === "slot" ? r.dest.slot : null;
+    if (sl && mvSlotLevel(sl) === lv) {
+      var ae = G.edges[sl.edge], last = edges[edges.length - 1], q = mvSlotAisle(sl);
+      // the bay is part-way along its aisle: stop the line there, not at the aisle's end
+      if (cur && last && last.id === ae.id) cur[cur.length - 1] = q;
+      else if (cur) cur.push(q);
+      else lines.push([G.nodes[ae.from].xy.slice(), q]);
+    }
+    return lines;
+  }
+  function mvStartOn(r, lv){
+    var edges = r.path.edges;
+    for (var i = 0; i < edges.length; i++) {
+      var A = G.nodes[edges[i].a], B = G.nodes[edges[i].b];
+      if (A && A.level === lv) return { xy: A.xy, first: i === 0 };
+      if (B && B.level === lv) return { xy: B.xy, first: false };
+    }
+    return null;
+  }
+  function mvDestOn(r, lv){
+    if (r.dest.kind === "slot") {
+      var sl = r.dest.slot;
+      return mvSlotLevel(sl) === lv ? { xy: mvSlotXY(sl), aisle: mvSlotAisle(sl), label: mvBayName(sl) } : null;
+    }
+    var n = r.dest.node;
+    return n && n.level === lv ? { xy: n.xy, label: nodeLabel(n) } : null;
+  }
+  function mvTouches(r, lv){ return !!(mvRouteLines(r, lv).length || mvDestOn(r, lv)); }
+
+  function mvDraw(){
+    MV.raf = 0;
+    var svg = $("mv-svg");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var lv = MV.level, k = 1 / MV.s, r = MV.route;
+    function el(tag, a){ var e = document.createElementNS(SVGNS, tag); for (var x in a) e.setAttribute(x, a[x]); svg.appendChild(e); return e; }
+    function label(x, y, t, size, anchor){
+      var e = el("text", { x: x, y: y, "font-size": size * k, "class": "mv-lbl", "stroke-width": 3 * k,
+                           "text-anchor": anchor || "start" });
+      e.textContent = t; return e;
+    }
+    var destId = r && r.dest.kind === "slot" ? r.dest.slot.id : null;
+    var bayLabels = MV.s >= 2.2;
+    MAP.slots.forEach(function(sl){
+      if (sl.id === destId || mvSlotLevel(sl) !== lv) return;
+      var p = mvSlotXY(sl);
+      el("circle", { cx: p[0], cy: p[1], r: 3.4 * k, "class": "mv-bay", opacity: r ? .55 : 1 });
+      if (bayLabels) label(p[0] + 5 * k, p[1] + 3.5 * k, mvBayName(sl), 10.5);
+    });
+    Object.keys(G.nodes).forEach(function(id){
+      var n = G.nodes[id];
+      if (n.level !== lv || !n.name) return;
+      el("rect", { x: n.xy[0] - 5 * k, y: n.xy[1] - 5 * k, width: 10 * k, height: 10 * k, rx: 2 * k,
+                   "class": "mv-place", "stroke-width": 1.5 * k });
+      label(n.xy[0] + 8 * k, n.xy[1] + 4 * k, nodeLabel(n), 12);
+    });
+    if (r) {
+      mvRouteLines(r, lv).forEach(function(line){
+        var pts = line.map(function(p){ return p[0] + "," + p[1]; }).join(" ");
+        el("polyline", { points: pts, "class": "mv-casing", "stroke-width": 9 * k });
+        el("polyline", { points: pts, "class": "mv-route", "stroke-width": 5 * k });
+      });
+      var st = mvStartOn(r, lv);
+      if (st) {
+        el("circle", { cx: st.xy[0], cy: st.xy[1], r: 7 * k, "class": "mv-start", "stroke-width": 3.5 * k });
+        label(st.xy[0], st.xy[1] + 24 * k, st.first ? "Start" : "Route enters here", 12, "middle");
+      }
+      var d = mvDestOn(r, lv);
+      if (d) {
+        if (d.aisle) el("line", { x1: d.aisle[0], y1: d.aisle[1], x2: d.xy[0], y2: d.xy[1], "class": "mv-route",
+                                  "stroke-width": 2.5 * k, "stroke-dasharray": (4 * k) + "," + (3 * k) });
+        el("circle", { cx: d.xy[0], cy: d.xy[1], r: 9 * k, "class": "mv-dest", "stroke-width": 3 * k });
+        label(d.xy[0], d.xy[1] - 15 * k, d.label, 14, "middle");
+      }
+    }
+    if (MV.sel && mvSlotLevel(MV.sel) === lv) {
+      var q = mvSlotXY(MV.sel);
+      el("circle", { cx: q[0], cy: q[1], r: 11 * k, "class": "mv-sel", "stroke-width": 3 * k });
+      if (!bayLabels) label(q[0] + 14 * k, q[1] + 4 * k, mvBayName(MV.sel), 12.5);
+    }
+  }
+  function mvApply(redraw){
+    $("mv-layer").style.transform = "translate(" + MV.tx + "px," + MV.ty + "px) scale(" + MV.s + ")";
+    if (redraw && !MV.raf) MV.raf = requestAnimationFrame(mvDraw);
+  }
+  function mvClamp(s){ return Math.max(MV.min * .8, Math.min(8, s)); }
+  function mvZoomAt(f, cx, cy){
+    var ns = mvClamp(MV.s * f);
+    MV.tx = cx - (cx - MV.tx) * ns / MV.s; MV.ty = cy - (cy - MV.ty) * ns / MV.s; MV.s = ns;
+    mvApply(true);
+  }
+  function mvFitBox(x0, y0, x1, y1, pad, maxS){
+    var st = $("mv-stage"), W = st.clientWidth, H = st.clientHeight;
+    var s2 = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0));
+    MV.s = Math.max(MV.min, Math.min(maxS, s2));
+    MV.tx = W / 2 - (x0 + x1) / 2 * MV.s; MV.ty = H / 2 - (y0 + y1) / 2 * MV.s;
+    mvApply(true);
+  }
+  function mvFit(){
+    var st = $("mv-stage"), W = st.clientWidth, H = st.clientHeight;
+    MV.min = Math.min(W / MV.w, H / MV.h) * .96;
+    if (MV.route) {
+      var pts = [];
+      mvRouteLines(MV.route, MV.level).forEach(function(l){ pts = pts.concat(l); });
+      var d = mvDestOn(MV.route, MV.level);
+      if (d) pts.push(d.xy);
+      if (pts.length) {
+        var xs = pts.map(function(p){ return p[0]; }), ys = pts.map(function(p){ return p[1]; });
+        return mvFitBox(Math.min.apply(null, xs), Math.min.apply(null, ys),
+                        Math.max.apply(null, xs), Math.max.apply(null, ys), 48, 2.6);
+      }
+    }
+    mvFitBox(0, 0, MV.w, MV.h, 0, MV.min);
+  }
+  function mvSetLevel(id){
+    var l = mvLevel(id);
+    if (!l) return;
+    MV.level = id;
+    MV.w = l.imageBox[2]; MV.h = l.imageBox[3];
+    var img = $("mv-img"), svg = $("mv-svg");
+    img.width = MV.w; img.height = MV.h;
+    img.style.marginLeft = l.imageBox[0] + "px"; img.style.marginTop = l.imageBox[1] + "px";
+    img.src = l.image;
+    svg.setAttribute("width", MV.w); svg.setAttribute("height", MV.h);
+    svg.setAttribute("viewBox", "0 0 " + MV.w + " " + MV.h);
+    Array.prototype.forEach.call($("mv-levels").children, function(b){
+      b.classList.toggle("on", b.getAttribute("data-l") === id);
+      b.setAttribute("aria-pressed", b.getAttribute("data-l") === id ? "true" : "false");
+    });
+    mvText();
+    mvFit();
+  }
+  function mvText(){
+    var r = MV.route, l = mvLevel(MV.level);
+    $("mv-title").textContent = r ? destLabel() : "Parking map";
+    var sub = l ? l.name : "";
+    if (r) {
+      var cur = r.steps[state.stepIx];
+      if (!mvTouches(r, MV.level)) sub += " · not on your route";
+      else if (cur && !mvLevel(cur.level)) sub += " · you are above ground: follow the steps until here";
+    } else sub += " · tap a bay to see whose it is";
+    $("mv-sub").textContent = sub;
+    var foot = $("mv-foot");
+    if (MV.sel) {
+      foot.innerHTML = '<div class="mapv-sel"><div class="t">' + esc(mvBayName(MV.sel)) +
+        (MV.sel.flat ? "'s parking" : "") + "<small>" + esc(levelName(mvSlotLevel(MV.sel))) + "</small></div>" +
+        (r && r.dest.kind === "slot" && r.dest.slot.id === MV.sel.id ? ""
+          : '<button type="button" id="mv-go">' + svgIcon("arrow") + "Directions</button>") + "</div>";
+      var go = $("mv-go");
+      if (go) go.onclick = function(){
+        var id = MV.sel.id;
+        mvClose(function(){ goDest(id); });
+      };
+      return;
+    }
+    var dot = function(cls){ return '<i style="width:10px;height:10px;border-radius:50%;background:var(' + cls + ')"></i>'; };
+    foot.innerHTML = '<div class="mapv-key">' +
+      (r ? '<span><i style="width:18px;height:5px;border-radius:3px;background:var(--accent)"></i>Your route</span>' +
+           "<span>" + dot("--accent") + (r.dest.kind === "slot" ? "Your bay" : "Destination") + "</span>" : "") +
+      '<span><i style="width:10px;height:10px;border-radius:2px;background:var(--text)"></i>Lift lobby or entry</span>' +
+      "<span>" + dot("--bay") + (r ? "Other bays" : "Bays") + "</span>" +
+      "<span>Pinch or use + and - to zoom</span></div>";
+  }
+  function mvTap(clientX, clientY){
+    var rc = $("mv-stage").getBoundingClientRect();
+    var x = (clientX - rc.left - MV.tx) / MV.s, y = (clientY - rc.top - MV.ty) / MV.s;
+    var best = null, bd = 18 / MV.s;
+    MAP.slots.forEach(function(sl){
+      if (mvSlotLevel(sl) !== MV.level) return;
+      var p = mvSlotXY(sl), d = Math.hypot(p[0] - x, p[1] - y);
+      if (d < bd) { bd = d; best = sl; }
+    });
+    MV.sel = best;
+    mvText(); mvApply(true);
+  }
+  function openMap(){
+    if (!PLAN_LEVELS.length) return;
+    MV.route = state.view === "route" && lastRoute ? lastRoute : null;
+    MV.sel = null;
+    var lv = null, r = MV.route;
+    if (r) {
+      // the level the visitor is on now, or the next one the route reaches that has a drawing
+      for (var i = state.stepIx; i < r.steps.length && !lv; i++)
+        if (mvLevel(r.steps[i].level) && mvTouches(r, r.steps[i].level)) lv = r.steps[i].level;
+      if (!lv) PLAN_LEVELS.forEach(function(l){ if (!lv && mvTouches(r, l.id)) lv = l.id; });
+    }
+    if (!lv) {
+      var most = {};
+      MAP.slots.forEach(function(sl){ var l = mvSlotLevel(sl); most[l] = (most[l] || 0) + 1; });
+      PLAN_LEVELS.forEach(function(l){ if (!lv || (most[l.id] || 0) > (most[lv] || 0)) lv = l.id; });
+    }
+    $("mv-levels").innerHTML = PLAN_LEVELS.map(function(l){
+      return '<button type="button" data-l="' + esc(l.id) + '">' +
+             (r && mvTouches(r, l.id) ? '<span class="r" title="On your route"></span>' : "") + esc(l.name) + "</button>";
+    }).join("");
+    Array.prototype.forEach.call($("mv-levels").children, function(b){
+      b.onclick = function(){ MV.sel = null; mvSetLevel(b.getAttribute("data-l")); };
+    });
+    $("mapv").hidden = false; MV.open = true;
+    try { history.pushState({ mapview: 1 }, ""); MV.pushed = true; } catch (e) { MV.pushed = false; }
+    mvSetLevel(lv);
+    $("mv-close").focus();
+  }
+  function mvHide(){
+    $("mapv").hidden = true; MV.open = false;
+    var after = MV.after; MV.after = null;
+    if (after) after();
+  }
+  /* Closing goes through history so the phone's back button closes the map
+     instead of leaving the journey; the action waits until that has happened. */
+  function mvClose(after){
+    MV.after = after || null;
+    if (MV.pushed) { MV.pushed = false; history.back(); }
+    else mvHide();
+  }
+  window.addEventListener("popstate", function(e){
+    if (!MV.open) return;
+    MV.pushed = false;
+    mvHide();
+    e.stopImmediatePropagation();       // the picker's back handling is not for this
+  });
+  $("mv-close").onclick = function(){ mvClose(); };
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape" && MV.open) mvClose(); });
+  $("mv-in").onclick = function(){ var st = $("mv-stage"); mvZoomAt(1.6, st.clientWidth / 2, st.clientHeight / 2); };
+  $("mv-out").onclick = function(){ var st = $("mv-stage"); mvZoomAt(1 / 1.6, st.clientWidth / 2, st.clientHeight / 2); };
+  $("mv-fit").onclick = mvFit;
+  $("mapbtn").onclick = openMap;
+  $("r-map").onclick = openMap;
+  $("mapbtn").hidden = $("r-map").hidden = !PLAN_LEVELS.length;
+  window.addEventListener("resize", function(){ if (MV.open) mvApply(true); });
+
+  /* Drag to move, pinch or wheel to zoom, tap a bay to name it. */
+  (function(){
+    var st = $("mv-stage"), pts = {}, from = null, moved = 0;
+    function ids(){ return Object.keys(pts); }
+    function snap(){
+      var rc = st.getBoundingClientRect(), k = ids();
+      if (k.length >= 2) {
+        var a = pts[k[0]], b = pts[k[1]];
+        return { two: true, d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+                 cx: (a.x + b.x) / 2 - rc.left, cy: (a.y + b.y) / 2 - rc.top, s: MV.s, tx: MV.tx, ty: MV.ty };
+      }
+      return k.length ? { two: false, x: pts[k[0]].x, y: pts[k[0]].y, tx: MV.tx, ty: MV.ty } : null;
+    }
+    st.addEventListener("pointerdown", function(e){
+      if (e.target.closest && e.target.closest(".mapv-zoom")) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      try { st.setPointerCapture(e.pointerId); } catch (x) {}
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      moved = ids().length > 1 ? 99 : 0;
+      from = snap();
+      st.style.cursor = "grabbing";
+    });
+    st.addEventListener("pointermove", function(e){
+      var p = pts[e.pointerId];
+      if (!p || !from) return;
+      moved += Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y);
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var k = ids();
+      if (from.two && k.length >= 2) {
+        var a = pts[k[0]], b = pts[k[1]], rc = st.getBoundingClientRect();
+        var ns = mvClamp(from.s * Math.hypot(a.x - b.x, a.y - b.y) / from.d);
+        var cx = (a.x + b.x) / 2 - rc.left, cy = (a.y + b.y) / 2 - rc.top;
+        var px = (from.cx - from.tx) / from.s, py = (from.cy - from.ty) / from.s;
+        MV.s = ns; MV.tx = cx - px * ns; MV.ty = cy - py * ns;
+        mvApply(true);
+      } else if (!from.two) {
+        MV.tx = from.tx + e.clientX - from.x; MV.ty = from.ty + e.clientY - from.y;
+        mvApply(false);
+      }
+    });
+    function up(e){
+      if (!pts[e.pointerId]) return;
+      var tap = e.type === "pointerup" && from && !from.two && moved < 8 && ids().length === 1;
+      delete pts[e.pointerId];
+      from = snap();
+      st.style.cursor = "";
+      if (tap) mvTap(e.clientX, e.clientY);
+    }
+    st.addEventListener("pointerup", up);
+    st.addEventListener("pointercancel", up);
+    st.addEventListener("wheel", function(e){
+      e.preventDefault();
+      var rc = st.getBoundingClientRect();
+      mvZoomAt(Math.exp(-e.deltaY * .0015), e.clientX - rc.left, e.clientY - rc.top);
+    }, { passive: false });
+  })();
 
   /* ================= dev sheet ================= */
   var sel = $("anchor");
