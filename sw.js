@@ -18,7 +18,7 @@
          network genuinely is not there.
    ============================================================ */
 
-const VERSION    = "athena-3540303543";
+const VERSION    = "athena-912726842";
 const DATA_FILES = ["map.js", "scanpoints.js"];
 const NET_TIMEOUT = 2500;
 
@@ -152,8 +152,10 @@ self.addEventListener("fetch", event => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // The admin surface must never be cached or served from cache.
+  // The admin surface must never be cached or served from cache - nor the
+  // local allotment review page, which only the dev server has.
   if (url.pathname.startsWith("/api/") ||
+      url.pathname.startsWith("/review/") ||
       url.pathname.endsWith("/admin.html") ||
       url.pathname.endsWith("/editor.html")) return;
 
