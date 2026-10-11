@@ -18,7 +18,7 @@
          network genuinely is not there.
    ============================================================ */
 
-const VERSION    = "athena-613436943";
+const VERSION    = "athena-3297237303";
 const DATA_FILES = ["map.js", "scanpoints.js"];
 const NET_TIMEOUT = 2500;
 
@@ -43,6 +43,8 @@ function planUrls(cache) {
       let m;
       // Each level's plan drawing, for the map view. Only the ones map.js names
       // (two small PNGs), so the route can be seen underground with no signal.
+      const listed = /"photos"\s*:\s*\[([^\]]*)\]/.exec(t);      // photos picked in the routes editor
+      if (listed) (listed[1].match(/"([^"]+)"/g) || []).forEach(n => seen.add("./photos/" + n.slice(1, -1) + ".jpg"));
       const plan = /"image"\s*:\s*"([^"]+)"/g;
       while ((m = plan.exec(t))) seen.add("./" + m[1]);
       // Turn photographs matter more than anything else here: the whole reason
@@ -158,6 +160,7 @@ self.addEventListener("fetch", event => {
   if (url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/review/") ||
       url.pathname.endsWith("/points.html") ||
+      url.pathname.endsWith("/routes.html") ||
       url.pathname.endsWith("/admin.html") ||
       url.pathname.endsWith("/editor.html")) return;
 

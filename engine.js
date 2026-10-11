@@ -17,8 +17,75 @@ function createEngine(MAP) {
   const LEVEL_PENALTY = 40;   // changing level is expensive and confusing
   const STRAIGHT_DEG  = 25;   // below this, it is not a turn
   const UTURN_DEG     = 130;
+  const BEND_DEG      = 40;   // a run of road that bends this far round is "follow the road round"
+  const AVOID_PENALTY = 500;  // "avoid if possible": only taken when nothing else gets there
 
-  const G = { nodes: {}, slots: {}, out: {}, edges: {}, flats: {}, flatIndex: [] };
+  const G = { nodes: {}, slots: {}, out: {}, edges: {}, flats: {}, flatIndex: [], turns: {} };
+  var NODE_AT = {};                   // the map's own nodes, for work done before the graph is built
+  MAP.nodes.forEach(function (n) { NODE_AT[n.id] = n; });
+
+  /* ---------- routing overlay (written in the routes editor) ----------
+     MAP.routing holds the editor's rules, keyed by stretch: an edge's key is
+     its two end nodes' stable keys, sorted and joined by "~", so "fwd" means
+     travelling from the first of those to the second. A rule can set the
+     traffic direction, how the stretch may be used, and the words for each
+     direction. It is applied here, in place, before anything reads the map,
+     and it is idempotent: a direction is set absolutely, never toggled, so
+     a map that has been through this once comes out the same the second time. */
+  (function applyRouting() {
+    var R = MAP.routing;
+    if (!R) return;
+    if (R.turns) G.turns = R.turns;
+    if (!R.edges) return;
+    var NK = {};
+    MAP.nodes.forEach(function (n) { NK[n.id] = n.key || n.id; });
+    var slotsOn = {};
+    (MAP.slots || []).forEach(function (s) { (slotsOn[s.edge] = slotsOn[s.edge] || []).push(s); });
+    MAP.edges.forEach(function (e) {
+      var ov = e.key && R.edges[e.key];
+      if (!ov) return;
+      var ends = e.key.split("~");
+      function flip() {
+        var t = e.from; e.from = e.to; e.to = t;
+        if (e.shape) e.shape = e.shape.slice().reverse();      // a curved road runs the other way too
+        // the old forward words now describe the reverse; a missing reverse leaves the new forward automatic
+        var fwd = e.instruction, rev = e.instructionRev;
+        e.instruction = rev == null ? null : rev; e.instructionRev = fwd == null ? null : fwd;
+        var pf = e.photo, pr = e.photoRev;
+        e.photo = pr == null ? null : pr; e.photoRev = pf == null ? null : pf;
+        // a bay's position along the aisle and its side are measured from `from`
+        (slotsOn[e.id] || []).forEach(function (sl) {
+          sl.t = Math.round((1 - sl.t) * 10000) / 10000;
+          sl.side = -(sl.side == null ? 1 : sl.side);
+        });
+      }
+      if (ov.dir === "fwd" || ov.dir === "rev") {
+        if (NK[e.from] !== (ov.dir === "fwd" ? ends[0] : ends[1])) flip();
+        e.oneway = true;
+      } else if (ov.dir === "both") {
+        e.oneway = false;
+      }
+      if (ov.use === "walk") { e.mode = ["foot"]; e.avoid = false; }
+      else if (ov.use === "closed") { e.mode = []; e.avoid = false; }
+      else if (ov.use === "avoid") e.avoid = true;
+      else if (ov.use === "normal") e.avoid = false;
+      var fwdIsFT = NK[e.from] === ends[0];
+      // "" is a deliberate choice of the automatic wording; it must not fall back to the other direction's words
+      // Words or a photo given for one direction belong to that direction only: the other
+      // direction says its own (or the automatic words) and shows its own photo (or none),
+      // never the first one's - "turn right under the bar" is wrong driven the other way.
+      if (ov.say) {
+        if (ov.say.fwd != null) e[fwdIsFT ? "instruction" : "instructionRev"] = ov.say.fwd;
+        if (ov.say.rev != null) e[fwdIsFT ? "instructionRev" : "instruction"] = ov.say.rev;
+        if (e.instructionRev == null) e.instructionRev = "";
+      }
+      if (ov.photo) {
+        if (ov.photo.fwd != null) e[fwdIsFT ? "photo" : "photoRev"] = ov.photo.fwd || null;
+        if (ov.photo.rev != null) e[fwdIsFT ? "photoRev" : "photo"] = ov.photo.rev || null;
+        if (e.photoRev == null) e.photoRev = "";
+      }
+    });
+  })();
 
   /* ---------- build ---------- */
   function buildGraph() {
@@ -142,14 +209,114 @@ function createEngine(MAP) {
   /* ---------- geometry ---------- */
   function bearing(a, b) { return Math.atan2(b.xy[1] - a.xy[1], b.xy[0] - a.xy[0]); }
 
+  /* A curved road keeps its path in `shape`: points from its `from` end to its `to` end.
+     A straight one is just its two ends. Turns, barricades and bay positions all follow
+     the shape, so a bend reads as the road it is, not as the line between its ends. */
+  function shapeOf(e) {
+    if (e.shape && e.shape.length >= 2) return e.shape;
+    var a = G.nodes[e.from] || NODE_AT[e.from], b = G.nodes[e.to] || NODE_AT[e.to];
+    return [a.xy, b.xy];
+  }
+  // the points of a directed edge (or the part-aisle leg) in the order it is travelled
+  function dirPts(pe) {
+    var e = G.edges[pe.id] || pe, pts = shapeOf(e);
+    return pe.a === e.from ? pts : pts.slice().reverse();
+  }
+  function bearingXY(p, q) { return Math.atan2(q[1] - p[1], q[0] - p[0]); }
+  // which way the road faces leaving its start, and arriving at its end
+  function departBearing(pe) {
+    var pts = dirPts(pe), i = 1;
+    while (i < pts.length - 1 && Math.abs(pts[i][0] - pts[0][0]) + Math.abs(pts[i][1] - pts[0][1]) < 0.01) i++;
+    return bearingXY(pts[0], pts[i]);
+  }
+  function arriveBearing(pe) {
+    var pts = dirPts(pe), n = pts.length - 1, i = n - 1;
+    while (i > 0 && Math.abs(pts[i][0] - pts[n][0]) + Math.abs(pts[i][1] - pts[n][1]) < 0.01) i--;
+    return bearingXY(pts[i], pts[n]);
+  }
+  /* A rounded corner turns along its curve, not at its junction (which sits half way round
+     it): there the turn is read from the road either side of the curve, where it runs
+     straight again. Everywhere else it is read at the junction itself, as before. */
+  function plen(pts) { var L = 0; for (var i = 0; i + 1 < pts.length; i++) L += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); return L; }
+  // which way the road runs at distance s along it
+  function headingAlong(pts, s) {
+    var acc = 0;
+    for (var i = 0; i + 1 < pts.length; i++) {
+      var l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      if (l > 0.01 && (acc + l >= s || i + 2 === pts.length)) return bearingXY(pts[i], pts[i + 1]);
+      acc += l;
+    }
+    return bearingXY(pts[0], pts[pts.length - 1]);
+  }
+  // how far either side of a rounded corner its curve reaches, in map units along this road
+  function reach(n, pe, pts) {
+    if (!n || !n.round || !n.round.w) return 0;
+    var e = G.edges[pe.id] || pe, L = plen(pts);
+    return Math.min(L, (n.round.w + 1) * L / (e.len || L));
+  }
+  function arriveHeading(pe) {
+    var pts = dirPts(pe), w = reach(G.nodes[pe.b], pe, pts);
+    return w ? headingAlong(pts, plen(pts) - w) : arriveBearing(pe);
+  }
+  function departHeading(pe) {
+    var pts = dirPts(pe), w = reach(G.nodes[pe.a], pe, pts);
+    return w ? headingAlong(pts, w) : departBearing(pe);
+  }
+  // how much a road bends along its own length, in degrees (right positive), leaving out the
+  // part of a rounded corner the turn at that corner already counts
+  function bendAlong(pe) {
+    var pts = dirPts(pe);
+    if (pts.length < 3) return 0;
+    var L = plen(pts), s0 = reach(G.nodes[pe.a], pe, pts), s1 = L - reach(G.nodes[pe.b], pe, pts);
+    var acc = 0, prev = null, sum = 0;
+    for (var i = 0; i + 1 < pts.length; i++) {
+      var l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      if (l > 0.01 && acc + l > s0 && acc < s1) {
+        var h = bearingXY(pts[i], pts[i + 1]);
+        if (prev != null) { var d = (h - prev) * 180 / Math.PI; while (d > 180) d -= 360; while (d < -180) d += 360; sum += d; }
+        prev = h;
+      }
+      acc += l;
+    }
+    return sum;
+  }
+  // the point a fraction t of the way along the road (by length), and the road from one end to it
+  function pointAt(e, t) {
+    var pts = shapeOf(e);
+    if (pts.length === 2) return [pts[0][0] + (pts[1][0] - pts[0][0]) * t, pts[0][1] + (pts[1][1] - pts[0][1]) * t];
+    var lens = [], L = 0;
+    for (var i = 0; i + 1 < pts.length; i++) { var l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); lens.push(l); L += l; }
+    var want = t * L, acc = 0;
+    for (var j = 0; j < lens.length; j++) {
+      if (acc + lens[j] >= want) {
+        var f = lens[j] ? (want - acc) / lens[j] : 0;
+        return [pts[j][0] + (pts[j + 1][0] - pts[j][0]) * f, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * f];
+      }
+      acc += lens[j];
+    }
+    return pts[pts.length - 1].slice();
+  }
+  function partTo(e, t, fromEnd) {
+    var pts = shapeOf(e), P = pointAt(e, t);
+    if (fromEnd === "to") { pts = pts.slice().reverse(); t = 1 - t; }
+    if (pts.length === 2) return [pts[0], P];
+    var lens = [], L = 0;
+    for (var i = 0; i + 1 < pts.length; i++) { var l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); lens.push(l); L += l; }
+    var out = [pts[0]], acc = 0, want = t * L;
+    for (var j = 0; j < lens.length && acc + lens[j] < want; j++) { acc += lens[j]; out.push(pts[j + 1]); }
+    out.push(P);
+    return out;
+  }
+
   function turnBetween(prev, next) {
     if (!prev) return { deg: 0, kind: "start" };
     // Only THIS edge changing level counts as a level change.
     if (G.nodes[next.a].level !== G.nodes[next.b].level) return { deg: 0, kind: "level" };
-    var p = G.nodes[prev.a], q = G.nodes[prev.b], r = G.nodes[next.b];
+    var p = G.nodes[prev.a], q = G.nodes[prev.b];
     // Just came off a ramp or lift: 2D bearing of the previous edge is meaningless.
     if (p.level !== q.level) return { deg: 0, kind: "straight" };
-    var d = (bearing(q, r) - bearing(p, q)) * 180 / Math.PI;
+    // the way the road faces leaving the junction, against the way the last one faced arriving
+    var d = (departHeading(next) - arriveHeading(prev)) * 180 / Math.PI;
     while (d > 180) d -= 360;
     while (d < -180) d += 360;
     var m = Math.abs(d);
@@ -166,17 +333,89 @@ function createEngine(MAP) {
     if (t.kind !== "straight" && t.kind !== "start") c += TURN_PENALTY;
     if (G.nodes[next.a].level !== G.nodes[next.b].level) c += LEVEL_PENALTY;
     if (next.type === "aisle" && mode === "car") c += 10;  // do not cut through aisles to save distance
+    if (next.avoid) c += AVOID_PENALTY;
     return c;
+  }
+
+  /* ---------- barricades ----------
+     A barricade is a line drawn across the plan. No route may cross it: not
+     along a stretch it cuts, and not through a junction it runs over, from one
+     side of it to the other. It blocks cars and people on foot unless it says
+     walkers can pass. Pure geometry against the map as it is, so it needs no
+     rebuild and keeps working when roads are redrawn. */
+  var BARS = (((MAP.routing && MAP.routing.barricades) || [])).filter(function (b) {
+    return b && b.level && Array.isArray(b.a) && Array.isArray(b.b);
+  }).map(function (b) {
+    // reach a few px past each end, so a line drawn to the kerb still closes the road
+    var dx = b.b[0] - b.a[0], dy = b.b[1] - b.a[1], L = Math.sqrt(dx * dx + dy * dy) || 1, x = 4 / L;
+    return { id: b.id, level: b.level, modes: b.foot ? ["car"] : ["car", "foot"],
+             a: [b.a[0] - dx * x, b.a[1] - dy * x], b: [b.b[0] + dx * x, b.b[1] + dy * x] };
+  });
+  var BAR_TOL = 3;                    // a junction this close to a barricade is on it
+  function orient(a, b, c) { return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]); }
+  function properCross(p1, p2, q1, q2) {
+    var d1 = orient(q1, q2, p1), d2 = orient(q1, q2, p2), d3 = orient(p1, p2, q1), d4 = orient(p1, p2, q2);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  }
+  function distToSeg(p, a, b) {
+    var dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-9;
+    var t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+    var x = a[0] + t * dx - p[0], y = a[1] + t * dy - p[1];
+    return Math.sqrt(x * x + y * y);
+  }
+  // does going from p to q on this level cross a barricade that stops this mode?
+  function segBarred(level, p, q, mode) {
+    for (var i = 0; i < BARS.length; i++) {
+      var b = BARS[i];
+      if (b.level === level && b.modes.indexOf(mode) >= 0 && properCross(p, q, b.a, b.b)) return true;
+    }
+    return false;
+  }
+  // passing through point x on this level, arriving from point p and leaving towards point q
+  function passBarredAt(level, x, p, q, mode) {
+    for (var i = 0; i < BARS.length; i++) {
+      var b = BARS[i];
+      if (b.level !== level || b.modes.indexOf(mode) < 0 || distToSeg(x, b.a, b.b) > BAR_TOL) continue;
+      if (orient(b.a, b.b, p) * orient(b.a, b.b, q) < 0) return true;
+    }
+    return false;
+  }
+  function passBarred(n, p, q, mode) { return passBarredAt(n.level, n.xy, p, q, mode); }
+  // does a run of points (a road, or part of one) cross a barricade anywhere along it?
+  function ptsBarred(level, pts, mode) {
+    for (var i = 0; i + 1 < pts.length; i++) if (segBarred(level, pts[i], pts[i + 1], mode)) return true;
+    for (var j = 1; j + 1 < pts.length; j++) if (passBarredAt(level, pts[j], pts[j - 1], pts[j + 1], mode)) return true;
+    return false;
+  }
+  var BARRED = {};                    // edge id -> { car: true, foot: true } when a barricade cuts it
+  if (BARS.length) MAP.edges.forEach(function (e) {
+    var a = NODE_AT[e.from], b = NODE_AT[e.to];
+    if (!a || !b || a.level !== b.level) return;
+    var pts = shapeOf(e);
+    ["car", "foot"].forEach(function (m) {
+      if (ptsBarred(a.level, pts, m)) (BARRED[e.id] = BARRED[e.id] || {})[m] = true;
+    });
+  });
+  function usable(e, mode) { return e.mode.indexOf(mode) >= 0 && !(BARRED[e.id] && BARRED[e.id][mode]); }
+  // may a route arrive on `prev` and leave on `next` (two directed edges meeting at a node)?
+  function canPass(prev, next, mode) {
+    if (!BARS.length || !prev) return true;
+    var n = G.nodes[prev.b], p = G.nodes[prev.a], q = G.nodes[next.b];
+    if (!n || !p || !q || p.level !== n.level || q.level !== n.level) return true;
+    var arr = dirPts(prev), dep = dirPts(next);           // the road's own points either side of the junction
+    return !passBarred(n, arr[arr.length - 2], dep[1], mode);
   }
 
   /* ---------- edge-based Dijkstra ---------- */
   function ekey(e) { return e.id + ":" + e.dir; }
 
-  function findPath(startId, goalId, mode) {
+  // noFirst: an edge id the path may not start on (no U-turn back up the ramp it just came down).
+  // goalOk: when given, an arrival at the goal only counts if goalOk(arriving edge) says so.
+  function findPath(startId, goalId, mode, noFirst, goalOk) {
     if (!G.out[startId]) return null;
     var dist = {}, prevOf = {}, seen = {}, pq = [];
 
-    G.out[startId].filter(function (e) { return e.mode.indexOf(mode) >= 0; }).forEach(function (e) {
+    G.out[startId].filter(function (e) { return usable(e, mode) && e.id !== noFirst; }).forEach(function (e) {
       var k = ekey(e);
       dist[k] = stepCost(null, e, mode);
       pq.push({ e: e, d: dist[k], p: null });
@@ -191,10 +430,11 @@ function createEngine(MAP) {
       seen[k] = true;
       prevOf[k] = cur.p;
 
-      if (cur.e.b === goalId) { best = cur.e; break; }
+      if (cur.e.b === goalId && (!goalOk || goalOk(cur.e))) { best = cur.e; break; }
 
-      G.out[cur.e.b].filter(function (e) { return e.mode.indexOf(mode) >= 0; }).forEach(function (nx) {
+      G.out[cur.e.b].filter(function (e) { return usable(e, mode); }).forEach(function (nx) {
         if (nx.id === cur.e.id) return;                    // no immediate backtrack
+        if (!canPass(cur.e, nx, mode)) return;             // never through a barricade
         var nk = ekey(nx), nd = cur.d + stepCost(cur.e, nx, mode);
         if (dist[nk] === undefined || nd < dist[nk]) {
           dist[nk] = nd;
@@ -230,20 +470,52 @@ function createEngine(MAP) {
     return d + " for about " + Math.round(len == null ? e.len : len) + " m.";
   }
 
+  /* A directed stretch as the routes editor names it: "<edge key>|fwd" or "|rev". */
+  function dirKey(pe) {
+    var e = G.edges[pe.id];
+    if (!e || !e.key) return null;
+    var first = e.key.split("~")[0];
+    var a = G.nodes[pe.a];
+    return e.key + "|" + (((a && a.key) || pe.a) === first ? "fwd" : "rev");
+  }
+  /* Words written for one particular turn: arriving on `prev`, leaving on `next`. */
+  function turnText(prev, next) {
+    if (!prev) return null;
+    var k1 = dirKey(prev), k2 = dirKey(next);
+    return (k1 && k2 && G.turns[k1 + ">" + k2]) || null;
+  }
+  var TURN_WORD = {
+    straight: "Continue straight", left: "Turn left", right: "Turn right",
+    "left-slight": "Bear left", "right-slight": "Bear right",
+    uturn: "Turn back", start: "Set off", level: "Go"
+  };
+  /* {turn} and {dist} let one sentence serve every way into a stretch: the
+     turn is worked out from where the visitor comes from, the distance from
+     how far this step really runs. */
+  var PLACEHOLDER = /\{(turn|dist)\}/i;
+  function fillText(tpl, kind, len) {
+    return tpl.replace(/\{turn\}/gi, TURN_WORD[kind] || "Continue")
+              .replace(/\{dist\}/gi, "about " + Math.round(len) + " m");
+  }
+
   function toSteps(path, dest) {
     var steps = [];
 
     path.edges.forEach(function (e, i) {
       var turn = turnBetween(path.edges[i - 1] || null, e);
       // A two-way edge is walked in both directions, but "keep the fountain on
-      // your left" is only true one way round. Use the authored reverse text.
-      var text = (e.dir === -1 && e.instructionRev) ? e.instructionRev : e.instruction;
+      // your left" is only true one way round. Use the authored reverse text;
+      // an empty one is a deliberate "say it automatically" and does not fall back.
+      // Words written for this exact turn win over both.
+      var text = turnText(path.edges[i - 1] || null, e) ||
+                 (e.dir === -1 && e.instructionRev != null ? e.instructionRev : e.instruction);
 
       // Merge unlabelled straight runs - never say "continue straight" five times.
       if (!text && turn.kind === "straight" && steps.length) {
         var last = steps[steps.length - 1];
         last.len += e.len;
         last.merged++;
+        last.bendDeg = (last.bendDeg || 0) + turn.deg + bendAlong(e);
         // The distance is IN the sentence, so a run that grew has to say so.
         // Without this a six-edge aisle read "set off for about 51 m" with
         // 183 m on the chip beside it - two numbers for one leg, one of them
@@ -255,34 +527,52 @@ function createEngine(MAP) {
         glyph: GLYPH[turn.kind] || "↑",
         kind: turn.kind,
         text: text || defaultText(e, turn),
+        tpl: text && PLACEHOLDER.test(text) ? text : null,
         // Authored text is the surveyor's words and is never rewritten.
         auto: !text, turn: turn,
-        len: e.len, merged: 0,
+        len: e.len, merged: 0, bendDeg: bendAlong(e),
         edge: i,          // index of the step's first path edge, so a map can draw each step
         level: G.nodes[e.b].level,
-        photo: e.photo || null
+        photo: (e.dir === -1 && e.photoRev != null ? e.photoRev : e.photo) || null
       });
+    });
+
+    // A run along a road that bends a long way round says so: "continue straight" would not do.
+    steps.forEach(function (st) {
+      var b = st.bendDeg || 0;
+      delete st.bendDeg;
+      if (!st.auto || Math.abs(b) < BEND_DEG || (st.kind !== "straight" && st.kind !== "start")) return;
+      st.bend = b > 0 ? "right" : "left";
+      st.text = (st.kind === "start" ? "Set off and follow" : "Follow") + " the road round to the " + st.bend +
+                " for about " + Math.round(st.len) + " m.";
     });
 
     if (dest.kind === "slot") {
       var s = dest.slot, ae = G.edges[s.edge];
       var lastEdge = path.edges[path.edges.length - 1];
+      var rev = dest.approach === "to";       // reached from the far end, because a barricade closes the near one
 
       // The final leg runs ALONG the aisle edge, which the graph search stops short of.
       // Without this the visitor is never told to turn into the aisle at all.
       if (!lastEdge || lastEdge.id !== ae.id) {
-        var pseudo = { id: ae.id, a: ae.from, b: ae.to, len: ae.len };
+        var pseudo = rev ? { id: ae.id, a: ae.to, b: ae.from, len: ae.len, dir: -1 }
+                         : { id: ae.id, a: ae.from, b: ae.to, len: ae.len, dir: 1 };
         var at = turnBetween(lastEdge, pseudo);
+        var own = rev ? (ae.instructionRev != null ? ae.instructionRev : ae.instruction) : ae.instruction;
+        var legText = turnText(lastEdge, pseudo) || own;
+        var legLen = ae.len * (rev ? 1 - s.t : s.t);
         steps.push({
-          glyph: GLYPH[at.kind] || "↑", kind: at.kind,
-          text: ae.instruction || defaultText(ae, at, ae.len * s.t),
-          len: Math.round(ae.len * s.t), merged: 0, edge: path.edges.length,   // the part-aisle leg
-          level: G.nodes[ae.to].level, photo: ae.photo || null
+          glyph: GLYPH[at.kind] || "↑", kind: at.kind, turn: at,
+          text: legText || defaultText(ae, at, legLen),
+          tpl: legText && PLACEHOLDER.test(legText) ? legText : null,
+          len: Math.round(legLen), merged: 0, edge: path.edges.length,   // the part-aisle leg
+          level: G.nodes[ae.to].level,
+          photo: (rev ? (ae.photoRev != null ? ae.photoRev : ae.photo) : ae.photo) || null
         });
       }
       steps.push({
         glyph: "⚑", kind: "arrive", final: true,
-        text: arrivalText(s),
+        text: arrivalText(s, rev),
         len: 0, merged: 0,
         level: G.nodes[ae.to].level, photo: null
       });
@@ -296,6 +586,8 @@ function createEngine(MAP) {
         len: 0, merged: 0, level: dest.node.level, photo: null
       });
     }
+    // placeholders are filled last, once merged runs know their full length
+    steps.forEach(function (st) { if (st.tpl) st.text = fillText(st.tpl, st.kind, st.len); });
     return steps;
   }
 
@@ -316,10 +608,11 @@ function createEngine(MAP) {
      you know the number is the right one. "s-359" is neither - it is the key
      this file happens to use, and it never belongs in front of a driver. */
   function slotNumber(id) { return String(id).replace(/^s-/, ""); }
-  function arrivalText(s) {
+  function arrivalText(s, reversed) {
     var who  = s.flat ? "This is " + s.flat + "'s parking, bay " + slotNumber(s.id)
                       : "This is visitor bay " + slotNumber(s.id);
-    var side = sideWord(s.side);
+    // driven the other way along the aisle, the bay is on the other hand
+    var side = sideWord(reversed && typeof s.side === "number" ? -s.side : s.side);
     var mark = s.landmark ? ", beside pillar " + s.landmark : "";
     return who + (side ? ", on your " + side : "") + mark + ".";
   }
@@ -358,10 +651,70 @@ function createEngine(MAP) {
     // same place resolveDest() lands a bay used as a DESTINATION. Without this
     // a bay start returns "no route available", which reads as a broken map
     // rather than as an id the router never accepted.
+    // A bay on a stretch closed to this way of travelling cannot be reached that way: the last
+    // leg is driven along the bay's own aisle, so the aisle itself has to allow it.
+    if (dest.kind === "slot") {
+      var ae0 = G.edges[dest.slot.edge];
+      if (ae0 && (ae0.mode || []).indexOf(mode) < 0)
+        return { error: "This bay is on a stretch that is closed to " + (mode === "car" ? "cars" : "walking") + "." };
+    }
     var from = resolveDest(startId);
-    var path = findPath(from && from.node ? from.node.id : startId, dest.node.id, mode);
+    var startNode = from && from.node ? from.node.id : startId;
+    // Starting at a bay (walking from your car), leave it by the end of its aisle
+    // that no barricade separates it from.
+    if (from && from.kind === "slot" && BARS.length) {
+      var se = G.edges[from.slot.edge], SA = G.nodes[se.from], SB = G.nodes[se.to];
+      if (ptsBarred(SA.level, partTo(se, from.slot.t, "from"), mode)) {
+        if (ptsBarred(SB.level, partTo(se, from.slot.t, "to"), mode)) return { error: "That bay is cut off by a barricade." };
+        startNode = SB.id;
+      }
+    }
+    // Where the search has to get to. A node is itself. A bay is reached along its
+    // aisle from the aisle's start; when a barricade stands between that end and
+    // the bay, from the other end instead (if the aisle is not one-way); when both
+    // are closed, it cannot be reached at all.
+    var goals = [];
+    if (dest.kind === "slot") {
+      var ae = G.edges[dest.slot.edge], A = G.nodes[ae.from], B = G.nodes[ae.to];
+      var legA = partTo(ae, dest.slot.t, "from"), legB = partTo(ae, dest.slot.t, "to");
+      var arrive = function (N, leg) {
+        return BARS.length ? function (e) { var ap = dirPts(e); return !passBarred(N, ap[ap.length - 2], leg[1], mode); } : null;
+      };
+      if (!ptsBarred(A.level, legA, mode)) goals.push({ node: A, approach: "from", ok: arrive(A, legA) });
+      if (BARS.length && !ae.oneway && !ptsBarred(B.level, legB, mode)) goals.push({ node: B, approach: "to", ok: arrive(B, legB) });
+      if (!goals.length) return { error: "This bay is cut off by a barricade." };
+    } else goals.push({ node: dest.node, approach: null, ok: null });
+
+    var path = null, goal = null;
+    var via = entranceFor(dest);
+    for (var gi = 0; gi < goals.length && !path; gi++) {
+      goal = goals[gi];
+      // Which ramp a block's cars take is a rule, not a distance: a car arriving at
+      // ground level for a block with an entrance set goes through that ramp's foot
+      // (an underground node), and from there may not turn straight back up it.
+      if (via && mode === "car" && G.nodes[startNode] && G.nodes[startNode].level === "G" &&
+          G.nodes[via] && via !== startNode) {
+        var p1 = findPath(startNode, via, mode);
+        var p2 = p1 && (via === goal.node.id ? { edges: [], cost: 0 }
+                                             : findPath(via, goal.node.id, mode, p1.edges[p1.edges.length - 1].id, goal.ok));
+        if (p1 && p2) path = { edges: p1.edges.concat(p2.edges), cost: p1.cost + p2.cost, via: via };
+      }
+      if (!path) path = findPath(startNode, goal.node.id, mode, null, goal.ok);
+    }
     if (!path) return { error: "No " + mode + " route available to that destination." };
+    if (goal.approach) dest = Object.assign({}, dest, { node: goal.node, approach: goal.approach });
     return { dest: dest, path: path, steps: toSteps(path, dest), cost: path.cost };
+  }
+  /* The entrance rule that applies to a destination: by block letter for a
+     flat's bay or lobby, "visitor" for visitor bays and visitor parking. */
+  function entranceFor(dest) {
+    var E = MAP.routing && MAP.routing.entrances;
+    if (!E || !dest) return null;
+    var g = null;
+    if (dest.kind === "slot") g = dest.slot.flat ? String(dest.slot.flat).split("-")[0] : "visitor";
+    else if (dest.flat) g = dest.flat.block;
+    else if (dest.node && /visitor/i.test(dest.node.name || dest.node.id)) g = "visitor";
+    return (g && E[g]) || null;
   }
 
   /* ---------- publish-time validation ----------
@@ -383,7 +736,7 @@ function createEngine(MAP) {
       if (!G.nodes[e.from] || !G.nodes[e.to]) issues.push({ sev: "err", msg: "Edge " + e.id + " references a missing node" });
       if (!("instruction" in e)) issues.push({ sev: "warn", msg: "Edge " + e.id + " has no instruction field" });
       // Directional wording on a two-way edge is wrong in one of the two directions.
-      if (!e.oneway && e.instruction && DIRECTIONAL.test(e.instruction) && !e.instructionRev)
+      if (!e.oneway && e.instruction && DIRECTIONAL.test(e.instruction) && e.instructionRev == null)
         issues.push({ sev: "warn", msg: "Edge " + e.id + ' says "' + e.instruction +
           '" but is two-way - it needs an instructionRev, or it is wrong going the other way' });
     });
@@ -453,6 +806,35 @@ function createEngine(MAP) {
         issues.push({ sev: "err", msg: "Block " + b.id + " lobby node '" + b.lobby + "' does not exist" });
     });
 
+    // The routes editor's rules must still find what they were written for.
+    var R = MAP.routing;
+    if (R) {
+      var EK = {};
+      MAP.edges.forEach(function (e) { if (e.key) EK[e.key] = e; });
+      Object.keys(R.edges || {}).forEach(function (k) {
+        if (!EK[k]) issues.push({ sev: "warn", msg: "Routing rule for stretch " + k + " matches no stretch on the map" });
+      });
+      Object.keys(R.turns || {}).forEach(function (k) {
+        var parts = k.split(">");
+        if (parts.length !== 2 || parts.some(function (x) { return !EK[x.split("|")[0]]; }))
+          issues.push({ sev: "warn", msg: "Turn wording " + k + " refers to a stretch that is not on the map" });
+      });
+      MAP.edges.forEach(function (e) {
+        if (!e.shape) return;
+        var a = NODE_AT[e.from], b = NODE_AT[e.to], f = e.shape[0], l = e.shape[e.shape.length - 1];
+        if (a && b && (Math.hypot(f[0] - a.xy[0], f[1] - a.xy[1]) > 1 || Math.hypot(l[0] - b.xy[0], l[1] - b.xy[1]) > 1))
+          issues.push({ sev: "warn", msg: "The curve of stretch " + e.id + " does not start and end at its junctions" });
+      });
+      (R.barricades || []).forEach(function (b) {
+        if (!MAP.levels.some(function (l) { return l.id === b.level; }))
+          issues.push({ sev: "warn", msg: "Barricade " + b.id + " is on a level the map does not have" });
+      });
+      Object.keys(R.entrances || {}).forEach(function (g) {
+        if (!G.nodes[R.entrances[g]])
+          issues.push({ sev: "err", msg: "Entrance for " + g + " goes through '" + R.entrances[g] + "', which is not on the map" });
+      });
+    }
+
     var slots = Object.keys(G.slots).length;
     var flats = G.flatIndex.length;
     var mapped = G.flatIndex.filter(function (id) { return G.flats[id].slots.length; }).length;
@@ -472,7 +854,12 @@ function createEngine(MAP) {
 
   return {
     G: G, route: route, validate: validate, resolveDest: resolveDest,
-    findPath: findPath, toSteps: toSteps,
+    findPath: findPath, toSteps: toSteps, turnBetween: turnBetween, dirKey: dirKey,
+    entranceFor: entranceFor, fillText: fillText,
+    canPass: canPass, isBarred: function (id, mode) { return !!(BARRED[id] && BARRED[id][mode]); },
+    dirPts: dirPts, edgePts: function (id) { return shapeOf(G.edges[id]); },
+    pointAt: function (id, t) { return pointAt(G.edges[id], t); },
+    partTo: function (id, t, fromEnd) { return partTo(G.edges[id], t, fromEnd); },
     normFlat: normFlat, flatIdFromKey: flatIdFromKey,
     slotNumber: slotNumber, nodeLabel: nodeLabel, isLift: isLift
   };

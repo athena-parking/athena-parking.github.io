@@ -546,6 +546,8 @@
       var left = m[2].toLowerCase() === "left";
       return m[1] ? (left ? "slightLeft" : "slightRight") : (left ? "left" : "right");
     }
+    // a run along a road that bends round ("follow the road round to the left")
+    if (s.bend) return s.bend === "left" ? "slightLeft" : "slightRight";
     return STEP_ICON[s.kind] || "straight";
   }
   Array.prototype.forEach.call(document.querySelectorAll("[data-i]"), function(el){
@@ -889,6 +891,19 @@
     return rows;
   }
 
+  /* Landmarks added in the routes editor that are not a lift, the gate or
+     visitor parking (those already have their own rows). Any of them can be
+     where you are or where you are going. */
+  function landmarkRows(){
+    var rows = [];
+    MAP.nodes.forEach(function(n){
+      if (!n.landmark || isLiftNode(n) || isGateNode(n) || isVisitorNode(n)) return;
+      rows.push({ id: n.id, node: n.id, icon: "building", t1: nodeLabel(n), t2: levelName(n.level) });
+    });
+    rows.sort(function(a, b){ return a.t1 < b.t1 ? -1 : a.t1 > b.t1 ? 1 : 0; });
+    return rows;
+  }
+
   /* Walking only. Every block has a lift lobby on each basement, and they are
      different places - so which ones to show depends on which question is
      being asked.
@@ -948,7 +963,7 @@
     }
     // Named places match on their names. A lift is only findable this way in
     // walking mode, for the same reason it is only listed there.
-    var named = visitorRows().concat(gateRows());
+    var named = visitorRows().concat(gateRows()).concat(landmarkRows());
     if (state.mode === "foot") named = named.concat(liftRows(forStart));
     named.forEach(function(r){
       if (!loose || r.t1.toLowerCase().indexOf(loose) >= 0) add(r);
@@ -1090,6 +1105,7 @@
     } else {
       renderBlockGrid();
       section("Visitor parking and the gate", bySameName(visitorRows().concat(gateRows())));
+      if (landmarkRows().length) section("Landmarks", landmarkRows());
       // The one thing walking unlocks. Below the bays, because a resident on
       // foot is usually walking away from a bay rather than towards a lift.
       if (state.mode === "foot") section("Lift lobbies", bySameName(liftRows(startMode)));
@@ -1376,26 +1392,32 @@
   function mvLevel(id){ return PLAN_LEVELS.filter(function(l){ return l.id === id; })[0] || null; }
   function mvLerp(a, b, t){ return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
   function mvSlotLevel(sl){ return G.nodes[G.edges[sl.edge].from].level; }
-  function mvSlotAisle(sl){ var e = G.edges[sl.edge]; return mvLerp(G.nodes[e.from].xy, G.nodes[e.to].xy, sl.t); }
+  // a bay's point on its aisle, along the road's curve when it has one
+  function mvSlotAisle(sl){ return ENG.pointAt(sl.edge, sl.t); }
   function mvSlotXY(sl){ return SLOT_AT[sl.id] || mvSlotAisle(sl); }
   function mvBayName(sl){ return sl.flat || "Visitor bay"; }
 
   /* The route on one level, as polylines in plan units. */
   function mvRouteLines(r, lv){
     var lines = [], cur = null, edges = r.path.edges;
-    edges.forEach(function(e){
+    var sl = r.dest.kind === "slot" ? r.dest.slot : null;
+    edges.forEach(function(e, i){
       var A = G.nodes[e.a], B = G.nodes[e.b];
       if (!A || !B || A.level !== lv || B.level !== lv) { cur = null; return; }
       if (!cur) { cur = [A.xy.slice()]; lines.push(cur); }
-      cur.push(B.xy.slice());
-    });
-    var sl = r.dest.kind === "slot" ? r.dest.slot : null;
-    if (sl && mvSlotLevel(sl) === lv) {
-      var ae = G.edges[sl.edge], last = edges[edges.length - 1], q = mvSlotAisle(sl);
+      var dp = ENG.dirPts(e);
       // the bay is part-way along its aisle: stop the line there, not at the aisle's end
-      if (cur && last && last.id === ae.id) cur[cur.length - 1] = q;
-      else if (cur) cur.push(q);
-      else lines.push([G.nodes[ae.from].xy.slice(), q]);
+      if (sl && i === edges.length - 1 && e.id === sl.edge) dp = ENG.partTo(sl.edge, sl.t, e.a === G.edges[sl.edge].from ? "from" : "to");
+      for (var j = 1; j < dp.length; j++) cur.push(dp[j].slice());
+    });
+    if (sl && mvSlotLevel(sl) === lv) {
+      var last = edges[edges.length - 1];
+      if (!last || last.id !== sl.edge) {
+        // a barricade can make the far end of the aisle the way in
+        var leg = ENG.partTo(sl.edge, sl.t, r.dest.approach === "to" ? "to" : "from");
+        if (cur) for (var k2 = 1; k2 < leg.length; k2++) cur.push(leg[k2].slice());
+        else lines.push(leg.map(function(q){ return q.slice(); }));
+      }
     }
     return lines;
   }
@@ -1425,7 +1447,7 @@
     if (!st || st.edge == null) return out;
     var sl = r.dest.kind === "slot" ? r.dest.slot : null;
     if (st.edge >= edges.length) {                       // the part-aisle leg into the bay
-      if (sl) { var ae = G.edges[sl.edge]; out.push({ level: mvSlotLevel(sl), pts: [G.nodes[ae.from].xy.slice(), mvSlotAisle(sl)] }); }
+      if (sl) out.push({ level: mvSlotLevel(sl), pts: ENG.partTo(sl.edge, sl.t, r.dest.approach === "to" ? "to" : "from") });
       return out;
     }
     var end = edges.length;
@@ -1434,9 +1456,11 @@
       var A = G.nodes[edges[i].a], B = G.nodes[edges[i].b];
       if (A.level !== B.level) { cur = null; out.push({ level: B.level, pts: [B.xy.slice()] }); continue; }   // a ramp: where it lands
       if (!cur || cur.level !== A.level) { cur = { level: A.level, pts: [A.xy.slice()] }; out.push(cur); }
-      cur.pts.push(B.xy.slice());
+      var dp = ENG.dirPts(edges[i]);
+      if (sl && i === edges.length - 1 && end === edges.length && edges[i].id === sl.edge)
+        dp = ENG.partTo(sl.edge, sl.t, edges[i].a === G.edges[sl.edge].from ? "from" : "to");
+      for (var j2 = 1; j2 < dp.length; j2++) cur.pts.push(dp[j2].slice());
     }
-    if (sl && end === edges.length && cur && edges[edges.length - 1].id === sl.edge) cur.pts[cur.pts.length - 1] = mvSlotAisle(sl);
     return out;
   }
   function mvStepLevel(r, k){
@@ -1485,11 +1509,14 @@
         var A = G.nodes[e.from], B = G.nodes[e.to];
         if (!A || !B || A.level !== lv || B.level !== lv) return;
         var car = (e.mode || []).indexOf("car") >= 0;
-        el("line", { x1: A.xy[0], y1: A.xy[1], x2: B.xy[0], y2: B.xy[1], "class": "mv-net", "stroke-width": 2.5 * k,
-                     opacity: .75, "stroke-dasharray": car ? "none" : (5 * k) + "," + (4 * k) });
+        el("polyline", { points: ENG.edgePts(e.id).map(function(q){ return q[0] + "," + q[1]; }).join(" "), fill: "none",
+                         "class": "mv-net", "stroke-width": 2.5 * k, "stroke-linejoin": "round",
+                         opacity: .75, "stroke-dasharray": car ? "none" : (5 * k) + "," + (4 * k) });
         if (e.oneway) {
-          var mx = (A.xy[0] + B.xy[0]) / 2, my = (A.xy[1] + B.xy[1]) / 2;
-          var ang = Math.atan2(B.xy[1] - A.xy[1], B.xy[0] - A.xy[0]), a = 7 * k;
+          // halfway along the road itself, pointing the way it runs there
+          var mp = ENG.pointAt(e.id, .5), p1 = ENG.pointAt(e.id, .45), p2 = ENG.pointAt(e.id, .55);
+          var mx = mp[0], my = mp[1];
+          var ang = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]), a = 7 * k;
           var tip = [mx + Math.cos(ang) * a, my + Math.sin(ang) * a];
           var l = [mx + Math.cos(ang + 2.5) * a, my + Math.sin(ang + 2.5) * a];
           var rr = [mx + Math.cos(ang - 2.5) * a, my + Math.sin(ang - 2.5) * a];
@@ -1509,6 +1536,12 @@
       el("rect", { x: n.xy[0] - 5 * k, y: n.xy[1] - 5 * k, width: 10 * k, height: 10 * k, rx: 2 * k,
                    "class": "mv-place", "stroke-width": 1.5 * k });
       label(n.xy[0] + 8 * k, n.xy[1] + 4 * k, nodeLabel(n), 12);
+    });
+    // barricades: lines no route crosses
+    ((MAP.routing && MAP.routing.barricades) || []).forEach(function(b){
+      if (b.level !== lv) return;
+      el("line", { x1: b.a[0], y1: b.a[1], x2: b.b[0], y2: b.b[1], stroke: "#c92a2a", "stroke-width": 7 * k, "stroke-linecap": "round" });
+      el("line", { x1: b.a[0], y1: b.a[1], x2: b.b[0], y2: b.b[1], stroke: "#fff", "stroke-width": 7 * k, "stroke-dasharray": (5 * k) + "," + (5 * k) });
     });
     if (r) {
       mvRouteLines(r, lv).forEach(function(line){
